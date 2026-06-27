@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild-wasm/esm/browser.js'
+import wasmUrl from 'esbuild-wasm/esbuild.wasm?url'
 import { memfsInstance, existsInVfs } from './vfs'
 import { path } from './shims/path'
 
@@ -13,8 +14,8 @@ export async function initBuild() {
     throw new Error(`esbuild initialize function not found. esbuild keys: ${keys}. default keys: ${defKeys}.`)
   }
   await esbuildInitialize({
-    wasmURL: '/node_modules/esbuild-wasm/esbuild.wasm',
-    worker: false, // We're already in a Worker
+    wasmURL: wasmUrl,
+    worker: false,
   })
   initialized = true
 }
