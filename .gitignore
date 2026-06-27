@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.local
+.playwright-cli/
+tests/e2e/results.json

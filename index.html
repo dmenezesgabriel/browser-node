@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>browser-node</title>
+    <style>
+      :root {
+        --bg:           #0d1117;
+        --bg-panel:     #161b22;
+        --bg-toolbar:   #21262d;
+        --bg-sidebar:   #0d1117;
+        --bg-terminal:  #010409;
+        --bg-hover:     rgba(177,186,196,0.08);
+        --bg-active:    rgba(31,111,235,0.25);
+        --border:       #30363d;
+        --text:         #e6edf3;
+        --text-muted:   #8b949e;
+        --text-dim:     #484f58;
+        --accent:       #1f6feb;
+        --accent-green: #3fb950;
+        --accent-amber: #e3b341;
+        --accent-red:   #f85149;
+        --toolbar-h:    46px;
+        --statusbar-h:  22px;
+        --sidebar-w:    240px;
+        --terminal-h:   260px;
+        --font-mono:    'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+        --font-ui:      -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        --radius:       6px;
+        --radius-sm:    4px;
+        --transition:   0.12s ease;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        overflow: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* ── App shell ── */
+      #app {
+        display: grid;
+        height: 100dvh;
+        grid-template-rows: var(--toolbar-h) 1fr var(--statusbar-h);
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+          "toolbar  toolbar"
+          "sidebar  main"
+          "statusbar statusbar";
+      }
+
+      /* ────────────────────────────────── Toolbar ── */
+      #toolbar {
+        grid-area: toolbar;
+        background: var(--bg-toolbar);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px;
+        user-select: none;
+        z-index: 10;
+        flex-shrink: 0;
+      }
+
+      #btn-sidebar-toggle {
+        width: 32px; height: 32px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 15px;
+        flex-shrink: 0;
+        transition: color var(--transition), background var(--transition);
+      }
+      #btn-sidebar-toggle:hover { color: var(--text); background: var(--bg-hover); }
+
+      #logo {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-muted);
+        letter-spacing: -0.3px;
+        margin: 0 6px 0 2px;
+        white-space: nowrap;
+      }
+      #logo span { color: var(--text); }
+
+      .tab-group {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        background: rgba(0,0,0,0.3);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 3px;
+      }
+      .tab-btn {
+        font-size: 12px;
+        font-family: var(--font-ui);
+        padding: 4px 14px;
+        background: transparent;
+        color: var(--text-muted);
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: color var(--transition), background var(--transition);
+        white-space: nowrap;
+      }
+      .tab-btn:hover { color: var(--text); background: var(--bg-hover); }
+      .tab-btn.active {
+        background: var(--bg-panel);
+        color: var(--text);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+      }
+
+      #toolbar-spacer { flex: 1; min-width: 0; }
+
+      #btn-new-file-tb {
+        font-size: 12px;
+        font-family: var(--font-ui);
+        padding: 5px 12px;
+        background: transparent;
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        cursor: pointer;
+        transition: all var(--transition);
+        white-space: nowrap;
+        display: none;
+      }
+      @media (min-width: 600px) { #btn-new-file-tb { display: inline-flex; align-items: center; gap: 5px; } }
+      #btn-new-file-tb:hover { color: var(--text); border-color: var(--accent); }
+
+      #btn-run {
+        font-size: 12px;
+        font-family: var(--font-ui);
+        font-weight: 500;
+        padding: 5px 16px;
+        background: rgba(63,185,80,0.12);
+        color: var(--accent-green);
+        border: 1px solid rgba(63,185,80,0.35);
+        border-radius: var(--radius);
+        cursor: pointer;
+        transition: all var(--transition);
+        white-space: nowrap;
+        margin-left: 4px;
+      }
+      #btn-run:hover { background: rgba(63,185,80,0.22); border-color: var(--accent-green); }
+      #btn-run:active { transform: scale(0.96); }
+      #btn-run:disabled { opacity: 0.4; cursor: default; }
+
+      #worker-status {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: var(--text-dim);
+        margin-left: 8px;
+        flex-shrink: 0;
+        transition: background var(--transition);
+      }
+      #worker-status.ready  { background: var(--accent-green); box-shadow: 0 0 6px rgba(63,185,80,0.5); }
+      #worker-status.busy   { background: var(--accent-amber); }
+      #worker-status.error  { background: var(--accent-red); }
+
+      /* ────────────────────────────────── Sidebar ── */
+      #sidebar {
+        grid-area: sidebar;
+        width: var(--sidebar-w);
+        background: var(--bg-sidebar);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        transition: width var(--transition);
+        flex-shrink: 0;
+      }
+      #sidebar.collapsed { width: 0; border-right-color: transparent; }
+
+      #sidebar-header {
+        padding: 7px 10px 6px;
+        font-size: 10px;
+        font-family: var(--font-ui);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+
+      #btn-new-file {
+        width: 22px; height: 22px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        font-size: 17px;
+        line-height: 1;
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+        transition: color var(--transition), background var(--transition);
+      }
+      #btn-new-file:hover { color: var(--text); background: var(--bg-hover); }
+
+      #explorer {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding: 4px 0;
+      }
+      #explorer::-webkit-scrollbar { width: 4px; }
+      #explorer::-webkit-scrollbar-track { background: transparent; }
+      #explorer::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+      #explorer::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+      .explorer-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+        overflow: hidden;
+        padding: 3px 8px;
+        line-height: 1.5;
+        cursor: pointer;
+        font-size: 12.5px;
+        transition: background var(--transition);
+      }
+      .explorer-item:hover { background: var(--bg-hover); }
+      .explorer-item.active { background: var(--bg-active) !important; }
+      .explorer-item .icon { flex-shrink: 0; font-size: 11px; width: 14px; text-align: center; }
+      .explorer-item.dir  { color: var(--accent-amber); }
+      .explorer-item.file { color: #9cdcfe; }
+      .explorer-item.active { color: var(--text); }
+
+      /* ────────────────────────────────── Main ── */
+      #main {
+        grid-area: main;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--bg-panel);
+        min-width: 0;
+      }
+
+      /* Editor + preview share flex:1 area */
+      #editor-area {
+        flex: 1;
+        overflow: hidden;
+        min-height: 0;
+        position: relative;
+      }
+
+      #editor-panel {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      #editor-panel.hidden { display: none; }
+
+      .cm-editor { height: 100%; font-size: 13px; }
+      .cm-scroller { overflow: auto !important; }
+
+      /* ── Preview ── */
+      #preview-panel {
+        position: absolute;
+        inset: 0;
+        display: none;
+        flex-direction: column;
+      }
+      #preview-panel.visible { display: flex; }
+
+      #preview-bar {
+        background: var(--bg-toolbar);
+        border-bottom: 1px solid var(--border);
+        padding: 5px 10px;
+        font-size: 11px;
+        font-family: var(--font-ui);
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      #preview-url {
+        flex: 1;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 4px 8px;
+        color: var(--text);
+        font-size: 12px;
+        font-family: var(--font-mono);
+        min-width: 0;
+        outline: none;
+      }
+      #preview-url:focus { border-color: var(--accent); }
+      #btn-refresh {
+        font-family: var(--font-ui);
+        font-size: 12px;
+        padding: 4px 10px;
+        background: var(--bg-hover);
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all var(--transition);
+        flex-shrink: 0;
+      }
+      #btn-refresh:hover { color: var(--text); border-color: var(--text-dim); }
+      #preview { flex: 1; border: none; background: #fff; min-height: 0; }
+
+      /* ────────────────────────────────── Terminal ── */
+      #terminal-panel {
+        height: var(--terminal-h);
+        flex-shrink: 0;
+        border-top: 1px solid var(--border);
+        background: var(--bg-terminal);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+
+      #terminal-drag {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 4px;
+        cursor: ns-resize;
+        z-index: 5;
+        transition: background var(--transition);
+      }
+      #terminal-drag:hover { background: rgba(88,166,255,0.2); }
+
+      #terminal-topbar {
+        height: 30px;
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        gap: 8px;
+        flex-shrink: 0;
+        user-select: none;
+      }
+      #terminal-topbar-label {
+        font-size: 10px;
+        font-family: var(--font-ui);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-muted);
+      }
+      #terminal-topbar-cwd {
+        font-size: 11px;
+        color: var(--text-dim);
+        font-family: var(--font-mono);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      #terminal-xterm {
+        flex: 1;
+        overflow: hidden;
+        min-height: 0;
+      }
+
+      .xterm { height: 100%; }
+      .xterm-screen { height: 100% !important; }
+      .xterm-viewport { background: var(--bg-terminal) !important; }
+
+      /* ────────────────────────────────── Status bar ── */
+      #statusbar {
+        grid-area: statusbar;
+        background: var(--accent);
+        color: rgba(255,255,255,0.9);
+        font-size: 11px;
+        font-family: var(--font-ui);
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        gap: 14px;
+        user-select: none;
+        overflow: hidden;
+      }
+      #statusbar-left { display: flex; align-items: center; gap: 10px; }
+      #statusbar-right { margin-left: auto; }
+      #statusbar-file {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        opacity: 0.85;
+      }
+      #statusbar-msg { opacity: 0.75; }
+
+      /* ────────────────────────────────── Responsive ── */
+      @media (max-width: 640px) {
+        :root {
+          --terminal-h: 200px;
+          --toolbar-h: 44px;
+          --sidebar-w: 220px;
+        }
+        #sidebar {
+          position: absolute;
+          top: var(--toolbar-h);
+          bottom: var(--statusbar-h);
+          left: 0;
+          z-index: 20;
+          box-shadow: 4px 0 16px rgba(0,0,0,0.5);
+        }
+        #sidebar.collapsed { box-shadow: none; }
+        #logo { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+
+      <div id="toolbar">
+        <button id="btn-sidebar-toggle" title="Toggle sidebar (Ctrl+B)">&#9776;</button>
+        <span id="logo">&#9123; <span>browser-node</span></span>
+        <div class="tab-group">
+          <button class="tab-btn active" id="btn-editor">Editor</button>
+          <button class="tab-btn"        id="btn-preview">Preview</button>
+        </div>
+        <div id="toolbar-spacer"></div>
+        <button id="btn-new-file-tb">+ New File</button>
+        <button id="btn-run" disabled>&#9654; Run</button>
+        <div id="worker-status" title="Worker status"></div>
+      </div>
+
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <span>Explorer</span>
+          <button id="btn-new-file" title="New file">+</button>
+        </div>
+        <div id="explorer"></div>
+      </div>
+
+      <div id="main">
+        <div id="editor-area">
+          <div id="editor-panel"></div>
+          <div id="preview-panel">
+            <div id="preview-bar">
+              <span>Preview</span>
+              <input id="preview-url" value="http://localhost:3000" readonly spellcheck="false" />
+              <button id="btn-refresh">&#8635; Refresh</button>
+            </div>
+            <iframe id="preview" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+          </div>
+        </div>
+
+        <div id="terminal-panel">
+          <div id="terminal-drag"></div>
+          <div id="terminal-topbar">
+            <span id="terminal-topbar-label">Terminal</span>
+            <span id="terminal-topbar-cwd">/</span>
+          </div>
+          <div id="terminal-xterm"></div>
+        </div>
+      </div>
+
+      <div id="statusbar">
+        <div id="statusbar-left">
+          <span id="statusbar-file">No file open</span>
+        </div>
+        <div id="statusbar-right">
+          <span id="statusbar-msg">Initializing…</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- E2E test interface: hidden shadow log readable by Playwright textContent -->
+    <div id="terminal" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;white-space:pre;" aria-hidden="true"></div>
+
+    <script type="module" src="/src/shell/main.ts"></script>
+  </body>
+</html>

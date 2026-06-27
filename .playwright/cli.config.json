@@ -1,0 +1,8 @@
+{
+  "browser": "chrome",
+  "browserOptions": {
+    "executablePath": "/tmp/chrome-linux64/chrome-wrapper",
+    "chromiumSandbox": false,
+    "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--ignore-certificate-errors", "--ignore-ssl-errors"]
+  }
+}

@@ -1,0 +1,16 @@
+export const os = {
+  platform: () => 'linux',
+  arch: () => 'x64',
+  type: () => 'Linux',
+  release: () => '5.15.0',
+  hostname: () => 'browser',
+  homedir: () => '/home/user',
+  tmpdir: () => '/tmp',
+  EOL: '\n',
+  cpus: () => [{ model: 'Browser CPU', speed: 2000, times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } }],
+  totalmem: () => 8 * 1024 * 1024 * 1024,
+  freemem: () => 4 * 1024 * 1024 * 1024,
+  networkInterfaces: () => ({}),
+  userInfo: () => ({ username: 'user', uid: 1000, gid: 1000, shell: '/bin/sh', homedir: '/home/user' }),
+  constants: { signals: {}, errno: {} },
+}
