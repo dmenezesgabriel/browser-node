@@ -3,9 +3,6 @@ name: Deploy browser-node to GitHub Pages
 on:
   push:
     branches: [main, master]
-    paths:
-      - 'browser-node/**'
-      - '.github/workflows/deploy-browser-node.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,10 +19,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: browser-node
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,7 +34,7 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-          cache-dependency-path: browser-node/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -51,7 +44,7 @@ jobs:
         env:
           # Assets are served from https://<owner>.github.io/<repo>/
           # Adjust VITE_BASE if a custom domain is configured (set to /).
-          VITE_BASE: /sandbox/
+          VITE_BASE: /browser-node/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -59,7 +52,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: browser-node/dist
+          path: dist
 
   deploy:
     needs: build
