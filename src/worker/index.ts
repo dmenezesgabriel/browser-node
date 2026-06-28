@@ -8,6 +8,7 @@ const _Buffer = _bufMod.Buffer
 ;(_Buffer as Record<string, unknown>).MAX_STRING_LENGTH = 4294967296
 _g.Buffer = _Buffer
 _g.process = _process
+_g.global = _g
 // Node.js globals not present in browsers
 _g.setImmediate = (fn: (...args: unknown[]) => void, ...args: unknown[]) => setTimeout(() => fn(...args), 0)
 _g.clearImmediate = (id: ReturnType<typeof setTimeout>) => clearTimeout(id)

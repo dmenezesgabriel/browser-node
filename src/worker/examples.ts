@@ -533,9 +533,11 @@ h1 {
     compilerOptions: {
       experimentalDecorators: true,
       emitDecoratorMetadata: true,
-      target: "es2022",
-      moduleResolution: "node",
-      esModuleInterop: true
+      target: "ES2022",
+      module: "ESNext",
+      moduleResolution: "bundler",
+      esModuleInterop: true,
+      skipLibCheck: true
     }
   }, null, 2))
 
@@ -550,18 +552,19 @@ h1 {
       preview: 'vite preview'
     },
     dependencies: {
-      '@angular/core': '^15.2.0',
-      '@angular/common': '^15.2.0',
-      '@angular/compiler': '^15.2.0',
-      '@angular/platform-browser': '^15.2.0',
-      '@angular/platform-browser-dynamic': '^15.2.0',
+      '@angular/core': '^19.0.0',
+      '@angular/common': '^19.0.0',
+      '@angular/compiler': '^19.0.0',
+      '@angular/platform-browser': '^19.0.0',
+      '@angular/platform-browser-dynamic': '^19.0.0',
       rxjs: '^7.8.0',
-      'zone.js': '^0.12.0'
+      'zone.js': '~0.14.0'
     },
     devDependencies: {
       vite: '^8.0.16',
-      typescript: '^5.0.0',
-      '@analogjs/vite-plugin-angular': '^0.2.0'
+      typescript: '^5.5.0',
+      '@angular/build': '^19.0.0',
+      '@analogjs/vite-plugin-angular': '^2.6.0'
     }
   }, null, 2))
 
@@ -574,7 +577,7 @@ export default defineConfig({
     port: 3000,
     hmr: false
   },
-  plugins: [angular({ jit: true })]
+  plugins: [angular()]
 })
 `)
 
@@ -602,13 +605,11 @@ export default defineConfig({
 `)
 
   writeFileToVfs('/examples/vite-angular-ts/src/main.ts',
-`import '@angular/compiler'
-import 'zone.js'
-import { platformBrowserDynamic } from '@angular/platform-browser-dynamic'
-import { AppModule } from './app/app.module'
+`import 'zone.js'
+import { bootstrapApplication } from '@angular/platform-browser'
+import { AppComponent } from './app/app.component'
 
-platformBrowserDynamic()
-  .bootstrapModule(AppModule)
+bootstrapApplication(AppComponent)
   .catch(err => console.error(err))
 `)
 
@@ -617,6 +618,7 @@ platformBrowserDynamic()
 
 @Component({
   selector: 'app-root',
+  standalone: true,
   template: \`
     <div class="container">
       <header class="header">
@@ -675,19 +677,6 @@ export class AppComponent {
     this.todos.splice(index, 1)
   }
 }
-`)
-
-  writeFileToVfs('/examples/vite-angular-ts/src/app/app.module.ts',
-`import { NgModule } from '@angular/core'
-import { BrowserModule } from '@angular/platform-browser'
-import { AppComponent } from './app.component'
-
-@NgModule({
-  imports: [BrowserModule],
-  declarations: [AppComponent],
-  bootstrap: [AppComponent]
-})
-export class AppModule {}
 `)
 
   writeFileToVfs('/examples/README.md',
