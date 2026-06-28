@@ -33,6 +33,7 @@ import ws from './ws'
 import { crypto } from './crypto'
 import { http, https } from './http'
 import { fs, fsPromises } from './fs'
+import { WASI as WasiPolyfill } from '@tybys/wasm-util'
 import esbuildShim from './esbuild'
 import chokidarShim from './chokidar'
 import connectDefault, { createServer as connectCreateServer } from './connect'
@@ -936,11 +937,11 @@ export const shimMap: Record<string, unknown> = {
   'node:v8': _v8,
   'v8': _v8,
   'node:worker_threads': _workerThreads,
-  // Minimal WASI shim — @napi-rs/wasm-runtime uses it as a config object for
-  // synchronously instantiating NAPI-RS WASM modules (e.g. oxc-parser).
-  // The actual WASI execution is handled by @emnapi/wasi-threads internally.
-  'wasi': { WASI: class { constructor(_opts?: unknown) {} start() {} initialize() {} }, default: undefined },
-  'node:wasi': { WASI: class { constructor(_opts?: unknown) {} start() {} initialize() {} }, default: undefined },
+  // WASI polyfill from @tybys/wasm-util — provides the wasi_snapshot_preview1
+  // import object for WebAssembly modules compiled with WASI (e.g. NAPI-RS WASM
+  // packages like oxc-parser).
+  'wasi': { WASI: WasiPolyfill, default: undefined },
+  'node:wasi': { WASI: WasiPolyfill, default: undefined },
   'node:string_decoder': {
     StringDecoder: class {
       encoding: string
