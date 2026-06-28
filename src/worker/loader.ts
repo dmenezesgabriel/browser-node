@@ -162,8 +162,9 @@ export async function preloadShims() {
 
 export function resolveModule(specifier: string, fromDir: string): string | null {
   const bareSpecifier = specifier.startsWith('node:') ? specifier.slice(5) : specifier
-  // Built-in shims
-  if (bareSpecifier in shimCache) return `__shim__:${bareSpecifier}`
+  // Built-in shims (except typescript — check VFS first for real installed TypeScript
+  // used by @angular/compiler-cli which needs full exports like SyntaxKind)
+  if (bareSpecifier in shimCache && bareSpecifier !== 'typescript') return `__shim__:${bareSpecifier}`
 
   // Package #imports (private package imports — e.g. "#module-sync-enabled")
   if (specifier.startsWith('#')) {
