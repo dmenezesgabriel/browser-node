@@ -208,7 +208,11 @@ export async function install(
       }
 
       if (rootWillSatisfy) {
-        // Hoisted install at root satisfies this dep — nothing to queue
+        // Already at root with compatible version — still queue for transitive dep
+        // discovery (extraction will be skipped, but deps will be processed).
+        if (!queue.some(q => q.name === depName && q.dest === rootNmDir)) {
+          queue.push({ name: depName, range: depRange, dest: rootNmDir })
+        }
       } else if (!existsInVfs(rootPkgJson) && !queue.some(q => q.name === depName && q.dest === rootNmDir)) {
         // Root is free — queue install at root (hoisting)
         queue.push({ name: depName, range: depRange, dest: rootNmDir })
