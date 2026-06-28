@@ -477,6 +477,7 @@ export default function App() {
       vite: '^8.0.16',
       typescript: '^5.5.0',
       '@angular/build': '^19.0.0',
+      '@angular/compiler-cli': '^19.0.0',
       '@analogjs/vite-plugin-angular': '^2.6.0'
     }
   }, null, 2))
