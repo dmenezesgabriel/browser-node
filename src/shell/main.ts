@@ -35,14 +35,17 @@ async function registerSW() {
 }
 
 const _listenTimers = new Map<number, ReturnType<typeof setTimeout>>()
+let _serverRunningPort: number | null = null
 
 function registerServerWithSW(port: number) {
   if (!swReady || !navigator.serviceWorker.controller) return
+  _serverRunningPort = port
   const { port1, port2 } = new MessageChannel()
   send({ type: 'register-server-port', port, workerPort: port1 }, [port1])
   navigator.serviceWorker.controller.postMessage({ type: 'register-server', listenPort: port, port: port2 }, [port2])
   const urlInput = document.getElementById('preview-url') as HTMLInputElement
   urlInput.value = `http://localhost:${port}/`
+  setPreviewStatus('ok', `Server :${port}`)
   setTimeout(() => loadPreview(port, '/'), 300)
 }
 
@@ -57,6 +60,11 @@ async function loadPreview(port: number, path: string) {
   const proxyUrl = `${proxyBase}${path}`
   try {
     const resp = await fetch(proxyUrl)
+    if (!resp.ok) {
+      previewFrame.srcdoc = previewErrorHtml(port, `Server responded with ${resp.status}`)
+      setPreviewStatus('err', `Error ${resp.status}`)
+      return
+    }
     let html = await resp.text()
     if (!html.trim()) return
 
@@ -103,7 +111,11 @@ async function loadPreview(port: number, path: string) {
     if (html.includes('<head>')) html = html.replace('<head>', '<head>' + injection)
     else html = injection + html
     previewFrame.srcdoc = html
-  } catch { /* preview unavailable */ }
+    setPreviewStatus('ok', `Server :${port}`)
+  } catch {
+    previewFrame.srcdoc = previewErrorHtml(port, 'Could not reach the server')
+    setPreviewStatus('err', 'Unreachable')
+  }
 }
 
 /** Rewrite absolute-path URLs (starting with /) in HTML to go via proxyBase.
@@ -171,6 +183,7 @@ const sidebar         = document.getElementById('sidebar') as HTMLDivElement
 const editorPanel     = document.getElementById('editor-panel') as HTMLDivElement
 const previewPanel    = document.getElementById('preview-panel') as HTMLDivElement
 const previewFrame    = document.getElementById('preview') as HTMLIFrameElement
+const previewStatusEl = document.getElementById('preview-status') as HTMLSpanElement
 const termPanel       = document.getElementById('terminal-panel') as HTMLDivElement
 const termXterm       = document.getElementById('terminal-xterm') as HTMLDivElement
 const termTopbarCwd   = document.getElementById('terminal-topbar-cwd') as HTMLSpanElement
@@ -228,6 +241,27 @@ function showTab(tab: 'editor' | 'preview') {
   btnEditor.classList.toggle('active', isEditor)
   btnPreview.classList.toggle('active', !isEditor)
   if (isEditor) terminalUI.refit()
+  if (!isEditor && !_serverRunningPort) {
+    if (!previewFrame.srcdoc || !previewFrame.srcdoc.includes('No server running')) {
+      previewFrame.srcdoc = noServerHtml()
+      setPreviewStatus('warn', 'No server')
+    }
+  }
+}
+
+function noServerHtml(): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>
+  body { background: #0d1117; color: #e6edf3; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+  .box { max-width: 520px; padding: 2rem; }
+  h2 { color: #8b949e; font-size: 1.1rem; font-weight: 400; margin-bottom: 0.5rem; }
+  p  { color: #484f58; font-size: 0.9rem; line-height: 1.6; }
+  kbd { border: 1px solid #30363d; border-radius: 3px; padding: 1px 5px; font-family: inherit; font-size: 0.85rem; color: #8b949e; background: #161b22; }
+</style></head>
+<body><div class="box">
+  <h2>No server running</h2>
+  <p>Start one in the terminal, e.g.<br><kbd>cd /examples/express && npm install && node index.js</kbd></p>
+</div></body></html>`
 }
 
 btnEditor.addEventListener('click', () => showTab('editor'))
@@ -261,8 +295,14 @@ btnNewFileTb.addEventListener('click', promptNewFile)
 // ── Preview refresh ───────────────────────────────────────────────────────────
 
 btnRefresh.addEventListener('click', () => {
+  if (!_serverRunningPort) {
+    previewFrame.srcdoc = noServerHtml()
+    setPreviewStatus('warn', 'No server')
+    return
+  }
   const urlInput = document.getElementById('preview-url') as HTMLInputElement
-  const port = parseInt(urlInput.value.match(/:(\d+)/)?.[1] ?? '3000', 10)
+  const port = _serverRunningPort
+  urlInput.value = `http://localhost:${port}/`
   previewFrame.srcdoc = ''
   loadPreview(port, '/')
 })
@@ -305,6 +345,27 @@ function setWorkerStatus(state: 'loading' | 'ready' | 'busy' | 'error') {
 
 function setStatusMsg(msg: string) {
   statusbarMsg.textContent = msg
+}
+
+function setPreviewStatus(state: 'ok' | 'warn' | 'err' | '', text: string) {
+  previewStatusEl.className = state
+  previewStatusEl.textContent = state ? text : ''
+}
+
+function previewErrorHtml(port: number, detail: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>
+  body { background: #0d1117; color: #e6edf3; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
+  .box { max-width: 480px; padding: 2rem; }
+  h2 { color: #f85149; font-size: 1.3rem; margin-bottom: 0.5rem; }
+  p { color: #8b949e; font-size: 0.95rem; line-height: 1.5; }
+  code { background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
+</style></head>
+<body><div class="box">
+  <h2>⚠ Preview Error</h2>
+  <p>${detail} on port <code>${port}</code>.</p>
+  <p>Start the server in the terminal, then click <strong>Refresh</strong>.</p>
+</div></body></html>`
 }
 
 runtimeWorker.addEventListener('message', (e: MessageEvent) => {
@@ -391,6 +452,11 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
   }
 
   if (type === 'server-close') {
+    if (_serverRunningPort === p.port) {
+      _serverRunningPort = null
+      previewFrame.srcdoc = noServerHtml()
+      setPreviewStatus('warn', 'No server')
+    }
     unregisterServerWithSW(p.port)
     setStatusMsg('Ready')
     return

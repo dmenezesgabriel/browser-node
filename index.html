@@ -309,6 +309,18 @@
         outline: none;
       }
       #preview-url:focus { border-color: var(--accent); }
+      #preview-status {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      #preview-status.ok  { color: var(--accent-green); }
+      #preview-status.warn { color: var(--accent-amber); }
+      #preview-status.err { color: var(--accent-red); }
+      #preview-status:empty { display: none; }
       #btn-refresh {
         font-family: var(--font-ui);
         font-size: 12px;
@@ -463,6 +475,7 @@
           <div id="preview-panel">
             <div id="preview-bar">
               <span>Preview</span>
+              <span id="preview-status"></span>
               <input id="preview-url" value="http://localhost:3000" readonly spellcheck="false" />
               <button id="btn-refresh">&#8635; Refresh</button>
             </div>
