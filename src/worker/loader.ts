@@ -251,11 +251,10 @@ export function resolveModule(specifier: string, fromDir: string): string | null
           } catch {}
         }
       } else {
-        // Root package — use exports['.'] then browser, then main
+        // Root package — use exports['.'] then main
         if (pkg) {
           const exportsRoot = (pkg.exports as Record<string, unknown>)?.['.'] ?? pkg.exports
-          const browserField = typeof pkg.browser === 'string' ? pkg.browser : undefined
-          const mainStr = resolveExportsMain(exportsRoot) ?? browserField ?? (pkg.main as string | undefined) ?? 'index.js'
+          const mainStr = resolveExportsMain(exportsRoot) ?? (pkg.main as string | undefined) ?? 'index.js'
           const mainPath = path.join(nmDir, mainStr)
           for (const ext of ['', '.js', '.cjs', '.mjs', '/index.js', '/index.cjs', '/index.mjs']) {
             if (isFileInVfs(mainPath + ext)) return mainPath + ext

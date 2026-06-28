@@ -259,7 +259,17 @@ const _dns = {
 }
 const _workerThreads = {
   isMainThread: true,
-  Worker: class { constructor() { throw new Error('worker_threads not supported') } },
+  Worker: class {
+    on: () => this
+    off: () => this
+    once: () => this
+    postMessage: () => {}
+    terminate: () => {}
+    unref: () => this
+    ref: () => this
+    addEventListener: () => {}
+    removeEventListener: () => {}
+  },
   MessageChannel: class {
     port1: { postMessage: () => {}, on: () => {}, off: () => {}, close: () => {}, addEventListener: () => {}, removeEventListener: () => {}, start: () => {} }
     port2: { postMessage: () => {}, on: () => {}, off: () => {}, close: () => {}, addEventListener: () => {}, removeEventListener: () => {}, start: () => {} }
@@ -926,6 +936,11 @@ export const shimMap: Record<string, unknown> = {
   'node:v8': _v8,
   'v8': _v8,
   'node:worker_threads': _workerThreads,
+  // Minimal WASI shim — @napi-rs/wasm-runtime uses it as a config object for
+  // synchronously instantiating NAPI-RS WASM modules (e.g. oxc-parser).
+  // The actual WASI execution is handled by @emnapi/wasi-threads internally.
+  'wasi': { WASI: class { constructor(_opts?: unknown) {} start() {} initialize() {} }, default: undefined },
+  'node:wasi': { WASI: class { constructor(_opts?: unknown) {} start() {} initialize() {} }, default: undefined },
   'node:string_decoder': {
     StringDecoder: class {
       encoding: string
