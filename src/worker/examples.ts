@@ -365,7 +365,7 @@ export default defineConfig({
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/main.tsx',
-`import ReactDOM from 'react-dom/client'
+`import * as ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
@@ -374,11 +374,11 @@ root.render(<App />)
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
-`import { useState } from 'react'
+`import * as React from 'react'
 import './App.css'
 
 export default function App() {
-  const [count, setCount] = useState(0)
+  const [count, setCount] = React.useState(0)
   return (
     <div className="container">
       <header className="header">
