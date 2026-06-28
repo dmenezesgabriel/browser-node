@@ -357,6 +357,42 @@ export default defineConfig({
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vite + React + TS</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --text: #c9d1d9;
+        --accent: #58a6ff;
+        --accent-gradient: linear-gradient(135deg, #58a6ff 0%, #1f6feb 100%);
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      .container { max-width: 600px; width: 100%; padding: 2rem; box-sizing: border-box; }
+      .header { text-align: center; margin-bottom: 2rem; }
+      .logo-react { font-size: 4rem; animation: spin 15s linear infinite; display: inline-block; margin-bottom: 1rem; }
+      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      h1 { font-size: 2rem; font-weight: 800; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
+      .card { background: var(--panel); border: 1px solid #30363d; border-radius: 12px; padding: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+      .counter-box { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+      .count-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8b949e; }
+      .count-val { font-size: 4rem; font-weight: 700; color: #fff; }
+      .button-group { display: flex; gap: 1rem; margin-top: 1rem; }
+      .btn { padding: 10px 24px; font-size: 1rem; font-weight: 600; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: all 0.15s ease; }
+      .btn-primary { background: var(--accent); color: #fff; }
+      .btn-primary:hover { background: #79c0ff; }
+      .btn-secondary { background: #21262d; color: #c9d1d9; border-color: #30363d; }
+      .btn-secondary:hover { background: #30363d; }
+      .btn-muted { background: transparent; color: #8b949e; border-color: #21262d; }
+      .btn-muted:hover { color: #fff; border-color: #30363d; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
@@ -369,16 +405,13 @@ export default defineConfig({
 
   writeFileToVfs('/examples/vite-react-ts/src/main.tsx',
 `import App from './App'
-import './index.css'
 
 const root = ReactDOM.createRoot(document.getElementById('root'))
 root.render(React.createElement(App))
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
-`import './App.css'
-
-const { useState } = React
+`const { useState } = React
 
 export default function App() {
   const [count, setCount] = useState(0)
@@ -389,7 +422,6 @@ export default function App() {
         <h1>Vite + React + TypeScript</h1>
       </header>
       <main className="card">
-        <p className="subtitle">Interactive Web Component running inside an in-browser Node.js sandbox.</p>
         <div className="counter-box">
           <span className="count-label">Count</span>
           <span className="count-val">{count}</span>
@@ -402,125 +434,6 @@ export default function App() {
       </main>
     </div>
   )
-}
-`)
-
-  writeFileToVfs('/examples/vite-react-ts/src/index.css',
-`:root {
-  --bg: #0d1117;
-  --panel: #161b22;
-  --text: #c9d1d9;
-  --accent: #58a6ff;
-  --accent-gradient: linear-gradient(135deg, #58a6ff 0%, #1f6feb 100%);
-}
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, sans-serif;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-}
-`)
-
-  writeFileToVfs('/examples/vite-react-ts/src/App.css',
-`.container {
-  max-width: 600px;
-  width: 100%;
-  padding: 2rem;
-  box-sizing: border-box;
-}
-.header {
-  text-align: center;
-  margin-bottom: 2rem;
-}
-.logo-react {
-  font-size: 4rem;
-  animation: spin 15s linear infinite;
-  display: inline-block;
-  margin-bottom: 1rem;
-}
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-h1 {
-  font-size: 2rem;
-  font-weight: 800;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin: 0;
-}
-.card {
-  background: var(--panel);
-  border: 1px solid #30363d;
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-}
-.subtitle {
-  color: #8b949e;
-  text-align: center;
-  margin-bottom: 2rem;
-  line-height: 1.6;
-}
-.counter-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-}
-.count-label {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #8b949e;
-}
-.count-val {
-  font-size: 4rem;
-  font-weight: 700;
-  color: #fff;
-}
-.button-group {
-  display: flex;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-.btn {
-  padding: 10px 24px;
-  font-size: 1rem;
-  font-weight: 600;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-.btn-primary:hover {
-  background: #79c0ff;
-}
-.btn-secondary {
-  background: #21262d;
-  color: #c9d1d9;
-  border-color: #30363d;
-}
-.btn-secondary:hover {
-  background: #30363d;
-}
-.btn-muted {
-  background: transparent;
-  color: #8b949e;
-  border-color: #21262d;
-}
-.btn-muted:hover {
-  color: #fff;
-  border-color: #30363d;
 }
 `)
 
