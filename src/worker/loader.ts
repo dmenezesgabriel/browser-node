@@ -238,6 +238,19 @@ export function resolveModule(specifier: string, fromDir: string): string | null
         for (const ext of ['', '.js', '.cjs', '.mjs', '/index.js', '/index.cjs']) {
           if (isFileInVfs(candidate + ext)) return candidate + ext
         }
+        // Fallback for subpaths that the caller imports by short name but the package
+        // stores under its main directory (e.g. entities v4.5 has main "./lib/index.js"
+        // and exposes "./lib/decode.js" via exports, but htmlparser2 requires
+        // "entities/decode"). Try prepending the main field's directory.
+        if (pkg?.main) {
+          const mainDir = path.dirname(pkg.main as string)
+          if (mainDir && mainDir !== '.') {
+            const prefixed = path.join(nmDir, mainDir, subpath)
+            for (const ext of ['', '.js', '.cjs', '.mjs']) {
+              if (isFileInVfs(prefixed + ext)) return prefixed + ext
+            }
+          }
+        }
         // If the candidate is a directory with its own package.json, follow its main field
         const innerPkgPath = candidate + '/package.json'
         if (isFileInVfs(innerPkgPath)) {
