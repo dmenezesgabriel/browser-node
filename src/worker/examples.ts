@@ -304,6 +304,8 @@ server.listen(PORT, function() {
 `)
 
   // ── Vite React TypeScript ──────────────────────────────────────────────────
+  // Loads React 18 UMD builds via <script> tags (no ESM imports from node_modules)
+  // so that Vite's dep optimizer (rolldown) is never triggered.
   mkdirpSync('/examples/vite-react-ts')
   mkdirpSync('/examples/vite-react-ts/src')
   
@@ -318,8 +320,8 @@ server.listen(PORT, function() {
       preview: 'vite preview'
     },
     dependencies: {
-      react: '^19.0.0',
-      'react-dom': '^19.0.0'
+      react: '^18.3.1',
+      'react-dom': '^18.3.1'
     },
     devDependencies: {
       vite: '^8.0.16',
@@ -332,9 +334,8 @@ server.listen(PORT, function() {
       target: 'ES2022',
       module: 'ESNext',
       moduleResolution: 'bundler',
-      jsx: 'react-jsx',
+      jsx: 'react',
       strict: true,
-      esModuleInterop: true,
       skipLibCheck: true
     }
   }, null, 2))
@@ -359,23 +360,25 @@ export default defineConfig({
   </head>
   <body>
     <div id="root"></div>
+    <script src="/node_modules/react/umd/react.development.js"></script>
+    <script src="/node_modules/react-dom/umd/react-dom.development.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/main.tsx',
-`import ReactDOM from 'react-dom/client'
-import App from './App'
+`import App from './App'
 import './index.css'
 
-const root = ReactDOM.createRoot(document.getElementById('root')!)
-root.render(<App />)
+const root = ReactDOM.createRoot(document.getElementById('root'))
+root.render(React.createElement(App))
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
-`import React, { useState } from 'react'
-import './App.css'
+`import './App.css'
+
+const { useState } = React
 
 export default function App() {
   const [count, setCount] = useState(0)
