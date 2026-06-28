@@ -323,8 +323,7 @@ server.listen(PORT, function() {
     },
     devDependencies: {
       vite: '^8.0.16',
-      typescript: '^6.0.3',
-      '@vitejs/plugin-react': '^5.2.0'
+      typescript: '^6.0.3'
     }
   }, null, 2))
 
@@ -342,13 +341,11 @@ server.listen(PORT, function() {
 
   writeFileToVfs('/examples/vite-react-ts/vite.config.ts',
 `import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   server: {
     port: 3000
-  },
-  plugins: [react()]
+  }
 })
 `)
 
@@ -372,9 +369,8 @@ export default defineConfig({
 import App from './App'
 import './index.css'
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <App />
-)
+const root = ReactDOM.createRoot(document.getElementById('root')!)
+root.render(<App />)
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
