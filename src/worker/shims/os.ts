@@ -8,6 +8,7 @@ export const os = {
   tmpdir: () => '/tmp',
   EOL: '\n',
   cpus: () => [{ model: 'Browser CPU', speed: 2000, times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } }],
+  availableParallelism: () => navigator.hardwareConcurrency || 1,
   totalmem: () => 8 * 1024 * 1024 * 1024,
   freemem: () => 4 * 1024 * 1024 * 1024,
   networkInterfaces: () => ({}),
