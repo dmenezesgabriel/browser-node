@@ -1,3 +1,10 @@
+class AsyncResource {
+  asyncId(): number { return 1 }
+  triggerAsyncId(): number { return 0 }
+  emitDestroy(): this { return this }
+  runInAsyncScope<R>(fn: (...args: unknown[]) => R, ...args: unknown[]): R { return fn(...args) }
+}
+
 export class EventEmitter {
   // Lazy init: subclasses that call util.inherits() may not invoke super(),
   // so we cannot rely on field initializers. Always access via _e() getter.
@@ -66,6 +73,37 @@ export class EventEmitter {
   }
   eventNames(): string[] {
     return [...this._e().keys()]
+  }
+}
+
+export class EventEmitterAsyncResource extends EventEmitter {
+  private _asyncResource: AsyncResource
+
+  constructor(options?: string | { name?: string }) {
+    super()
+    const name = typeof options === 'string' ? options : options?.name ?? 'event'
+    this._asyncResource = new AsyncResource()
+  }
+
+  get asyncResource(): AsyncResource {
+    return this._asyncResource
+  }
+
+  asyncId(): number {
+    return this._asyncResource.asyncId()
+  }
+
+  triggerAsyncId(): number {
+    return this._asyncResource.triggerAsyncId()
+  }
+
+  emitDestroy(): this {
+    this._asyncResource.emitDestroy()
+    return this
+  }
+
+  emit(event: string, ...args: unknown[]): boolean {
+    return this._asyncResource.runInAsyncScope(() => super.emit(event, ...args))
   }
 }
 

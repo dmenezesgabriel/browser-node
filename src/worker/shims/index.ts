@@ -24,7 +24,7 @@ import { Buffer } from 'buffer'
 
 import { process } from './process'
 import { path } from './path'
-import { EventEmitter } from './events'
+import { EventEmitter, EventEmitterAsyncResource } from './events'
 import { Readable, Writable, Transform, PassThrough, Stream } from './stream'
 import defaultStream from './stream'
 import { util } from './util'
@@ -117,7 +117,7 @@ const _url = {
 const _buffer = { Buffer, default: Buffer, constants: { MAX_STRING_LENGTH: 4294967296, MAX_LENGTH: 4294967296 } }
 // Node.js: require('events') returns the EventEmitter constructor directly
 // (it's callable as `new (require('events'))()` and has `.EventEmitter` property)
-const _events = Object.assign(EventEmitter, { EventEmitter, default: EventEmitter })
+const _events = Object.assign(EventEmitter, { EventEmitter, EventEmitterAsyncResource, default: EventEmitter })
 const _querystring = {
   stringify: (obj: Record<string, string>) => new URLSearchParams(obj).toString(),
   parse: (s: string) => Object.fromEntries(new URLSearchParams(s)),
