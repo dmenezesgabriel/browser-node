@@ -439,12 +439,19 @@ export function requireSync(specifier: string, fromDir = '/app'): unknown {
     specifier = specifier.replace(/^file:\/\//, '')
   }
 
-  // Built-in shim
-  if (specifier in shimCache) return shimCache[specifier]
+  // Built-in shim (except typescript — check VFS first so real installed TypeScript
+  // is used by packages like @angular/compiler-cli that need full exports like SyntaxKind)
+  if (specifier in shimCache && specifier !== 'typescript') {
+    return shimCache[specifier]
+  }
 
   const resolved = resolveModule(specifier, fromDir)
 
   if (!resolved) {
+    if (specifier === 'typescript') {
+      // Fallback to built-in shim when TypeScript is not installed (e.g. JS-only projects)
+      return shimCache['typescript']
+    }
     throw new Error(`Cannot find module '${specifier}' from '${fromDir}'`)
   }
 
