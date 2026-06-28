@@ -318,8 +318,8 @@ server.listen(PORT, function() {
       preview: 'vite preview'
     },
     dependencies: {
-      react: '^18.3.1',
-      'react-dom': '^18.3.1'
+      react: '^19.0.0',
+      'react-dom': '^19.0.0'
     },
     devDependencies: {
       vite: '^8.0.16',
@@ -365,7 +365,7 @@ export default defineConfig({
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/main.tsx',
-`import * as ReactDOM from 'react-dom/client'
+`import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
@@ -374,11 +374,11 @@ root.render(<App />)
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
-`import * as React from 'react'
+`import React, { useState } from 'react'
 import './App.css'
 
 export default function App() {
-  const [count, setCount] = React.useState(0)
+  const [count, setCount] = useState(0)
   return (
     <div className="container">
       <header className="header">
