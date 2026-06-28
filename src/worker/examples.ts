@@ -323,7 +323,8 @@ server.listen(PORT, function() {
     },
     devDependencies: {
       vite: '^8.0.16',
-      typescript: '^6.0.3'
+      typescript: '^6.0.3',
+      '@vitejs/plugin-react': '^5.2.0'
     }
   }, null, 2))
 
@@ -341,10 +342,13 @@ server.listen(PORT, function() {
 
   writeFileToVfs('/examples/vite-react-ts/vite.config.ts',
 `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
 export default defineConfig({
   server: {
     port: 3000
-  }
+  },
+  plugins: [react()]
 })
 `)
 
@@ -364,20 +368,17 @@ export default defineConfig({
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/main.tsx',
-`import React from 'react'
-import ReactDOM from 'react-dom/client'
+`import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+  <App />
 )
 `)
 
   writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
-`import React, { useState } from 'react'
+`import { useState } from 'react'
 import './App.css'
 
 export default function App() {

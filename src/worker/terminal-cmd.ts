@@ -613,7 +613,7 @@ async function cmdVite(args: string[]): Promise<number> {
       root,
       server: { port },
       logLevel: 'info',
-      optimizeDeps: { disabled: true },
+      optimizeDeps: { noDiscovery: true },
 
     })
     await server.listen()
