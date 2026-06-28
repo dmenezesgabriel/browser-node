@@ -156,42 +156,65 @@ export async function install(
     const version = resolveVersion(meta, range)
     const key = `${name}@${version}`
     if (installed.has(key)) continue
-    installed.add(key)
 
     const pkgDir = path.join(dest, name)
-    const alreadyExtracted = existsInVfs(path.join(pkgDir, 'package.json'))
-    if (!alreadyExtracted) {
+    const pkgJsonPath = path.join(pkgDir, 'package.json')
+
+    // If the dest slot already has a package.json, verify the version matches.
+    // A mismatch means the slot was taken by a different (incompatible) version —
+    // skip this entry rather than silently marking the wrong version as installed.
+    if (existsInVfs(pkgJsonPath)) {
+      try {
+        const existing = JSON.parse(memfsInstance.readFileSync(pkgJsonPath, 'utf8') as string)
+        if (existing.version !== version) continue
+      } catch {}
+    } else {
       log(`npm  installing  ${name}@${version}`)
       mkdirpSync(pkgDir)
       await extractTarball(meta.versions[version].dist.tarball, pkgDir)
     }
 
+    installed.add(key)
+
     const deps = meta.versions[version].dependencies ?? {}
     for (const [depName, depRange] of Object.entries(deps)) {
-      // Try to use already-installed version; otherwise install into package's own node_modules
+      // Resolve the best version for this dep (fetch is cached)
+      let depMeta: PackageMeta | null = null
       let resolved: string | null = null
       try {
-        const depMeta = await fetchMeta(depName)
+        depMeta = await fetchMeta(depName)
         resolved = resolveVersion(depMeta, depRange)
       } catch {}
 
-      const globalInstalled = existsInVfs(path.join(rootNmDir, depName, 'package.json'))
-      if (!globalInstalled) {
-        // check if already queued
-        const alreadyQueued = queue.some(q => q.name === depName)
-        if (!alreadyQueued) {
-          queue.push({ name: depName, range: depRange, dest: rootNmDir })
+      // Will a compatible version of this dep end up at root (installed or queued)?
+      let rootWillSatisfy = false
+      const rootPkgJson = path.join(rootNmDir, depName, 'package.json')
+      if (existsInVfs(rootPkgJson)) {
+        if (resolved) {
+          try {
+            const { version: rootVer } = JSON.parse(memfsInstance.readFileSync(rootPkgJson, 'utf8') as string)
+            rootWillSatisfy = satisfies(rootVer, depRange)
+          } catch {}
         }
-      } else if (resolved) {
-        // Verify version compatibility; hoist if ok, nest if not
-        try {
-          const pkgJsonRaw = memfsInstance.readFileSync(path.join(rootNmDir, depName, 'package.json'), 'utf8') as string
-          const { version: installedVersion } = JSON.parse(pkgJsonRaw)
-          if (!satisfies(installedVersion, depRange)) {
-            // Nest inside the dependent's node_modules
-            queue.push({ name: depName, range: depRange, dest: path.join(pkgDir, 'node_modules') })
-          }
-        } catch {}
+      } else if (depMeta && resolved) {
+        // Not installed yet — check if a compatible version is already queued at root
+        const queuedAtRoot = queue.find(q => q.name === depName && q.dest === rootNmDir)
+        if (queuedAtRoot) {
+          try {
+            const queuedVer = resolveVersion(depMeta, queuedAtRoot.range)
+            rootWillSatisfy = satisfies(queuedVer, depRange)
+          } catch {}
+        }
+      }
+
+      if (rootWillSatisfy) {
+        // Hoisted install at root satisfies this dep — nothing to queue
+      } else if (!existsInVfs(rootPkgJson) && !queue.some(q => q.name === depName && q.dest === rootNmDir)) {
+        // Root is free — queue install at root (hoisting)
+        queue.push({ name: depName, range: depRange, dest: rootNmDir })
+      } else {
+        // Root taken by incompatible version (installed or queued) — nest under this package
+        queue.push({ name: depName, range: depRange, dest: path.join(pkgDir, 'node_modules') })
       }
     }
   }
