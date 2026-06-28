@@ -34,6 +34,18 @@ import { crypto } from './crypto'
 import { http, https } from './http'
 import { fs, fsPromises } from './fs'
 import { WASI as WasiPolyfill } from '@tybys/wasm-util'
+// WASI polyfill: @tybys/wasm-util provides wasi_snapshot_preview1 for NAPI-RS
+// WASM modules (e.g. oxc-parser). The CJS entry passes preopens, which requires
+// an fs implementation; inject our VFS-backed fs.
+class WasiWithFs extends WasiPolyfill {
+  constructor(opts?: Record<string, unknown>) {
+    // Preopens require fs.openSync on directories; memfs doesn't fully support
+    // that. Strip preopens — NAPI-RS parsers like oxc-parser don't need
+    // filesystem access from WASI.
+    const { preopens, ...rest } = opts ?? {}
+    super(rest)
+  }
+}
 import esbuildShim from './esbuild'
 import chokidarShim from './chokidar'
 import connectDefault, { createServer as connectCreateServer } from './connect'
@@ -937,11 +949,8 @@ export const shimMap: Record<string, unknown> = {
   'node:v8': _v8,
   'v8': _v8,
   'node:worker_threads': _workerThreads,
-  // WASI polyfill from @tybys/wasm-util — provides the wasi_snapshot_preview1
-  // import object for WebAssembly modules compiled with WASI (e.g. NAPI-RS WASM
-  // packages like oxc-parser).
-  'wasi': { WASI: WasiPolyfill, default: undefined },
-  'node:wasi': { WASI: WasiPolyfill, default: undefined },
+  'wasi': { WASI: WasiWithFs, default: undefined },
+  'node:wasi': { WASI: WasiWithFs, default: undefined },
   'node:string_decoder': {
     StringDecoder: class {
       encoding: string
