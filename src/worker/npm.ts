@@ -9,7 +9,7 @@ const REGISTRY = import.meta.env.DEV ? '/_npm' : 'https://registry.npmjs.org'
 
 type PackageMeta = {
   name: string
-  versions: Record<string, { dist: { tarball: string }; dependencies?: Record<string, string> }>
+  versions: Record<string, { dist: { tarball: string }; dependencies?: Record<string, string>; optionalDependencies?: Record<string, string> }>
   'dist-tags': { latest: string }
 }
 
@@ -143,7 +143,7 @@ export async function install(
 
   while (queue.length) {
     const { name, range, dest } = queue.shift()!
-    if (SKIP_PKGS.has(name) || (name.startsWith('@next/swc-') && !name.includes('wasm')) || name.startsWith('@swc/core-') || name.startsWith('@vercel/nxt-')) {
+    if (SKIP_PKGS.has(name) || (name.startsWith('@next/swc-') && !name.includes('wasm')) || name.startsWith('@swc/core-') || name.startsWith('@vercel/nxt-') || (name.startsWith('@oxc-parser/binding-') && !name.includes('wasm'))) {
       log(`npm  skipping   ${name} (native/shimmed)`)
       continue
     }
@@ -176,7 +176,7 @@ export async function install(
 
     installed.add(key)
 
-    const deps = meta.versions[version].dependencies ?? {}
+    const deps = { ...meta.versions[version].dependencies, ...meta.versions[version].optionalDependencies }
     for (const [depName, depRange] of Object.entries(deps)) {
       // Resolve the best version for this dep (fetch is cached)
       let depMeta: PackageMeta | null = null
