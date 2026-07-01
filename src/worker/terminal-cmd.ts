@@ -537,11 +537,19 @@ async function cmdNpx(args: string[]): Promise<number> {
     version = rawPkg.slice(lastAt + 1)
   }
 
-  const pkgJsonPath = `/node_modules/${pkgName}/package.json`
+  // Check local first, then global
+  let pkgJsonPath = normalize(_cwd + `/node_modules/${pkgName}/package.json`)
+  let nmBase = normalize(_cwd + '/node_modules')
+  
+  if (!existsInVfs(pkgJsonPath)) {
+    pkgJsonPath = `/node_modules/${pkgName}/package.json`
+    nmBase = '/node_modules'
+  }
+
   if (!existsInVfs(pkgJsonPath)) {
     stdout(`npx: installing ${pkgName}@${version}...\n`)
     if (_install) {
-      await _install({ [pkgName]: version })
+      await _install({ [pkgName]: version }, nmBase)
     } else {
       stderr('npx: installer not ready\n')
       return 1
@@ -553,13 +561,13 @@ async function cmdNpx(args: string[]): Promise<number> {
     const pkg = JSON.parse(memfsInstance.readFileSync(pkgJsonPath, 'utf8') as string)
     if (pkg.bin) {
       if (typeof pkg.bin === 'string') {
-        binFile = pathMod.join('/node_modules', pkgName, pkg.bin)
+        binFile = pathMod.join(nmBase, pkgName, pkg.bin)
       } else if (typeof pkg.bin === 'object' && pkg.bin !== null) {
         const keys = Object.keys(pkg.bin)
         const cmdName = pkgName.split('/').pop() || ''
         const matchingKey = keys.find(k => k === cmdName) || keys[0]
         if (matchingKey) {
-          binFile = pathMod.join('/node_modules', pkgName, pkg.bin[matchingKey])
+          binFile = pathMod.join(nmBase, pkgName, pkg.bin[matchingKey])
         }
       }
     }
@@ -577,6 +585,126 @@ async function cmdNpx(args: string[]): Promise<number> {
 }
 
 // ── vite ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Vite plugin: CJS-to-ESM interop
+ * When Vite serves a CJS module from node_modules, this plugin intercepts it
+ * and generates a synthetic ESM module that re-exports the CJS module's properties.
+ *
+ * This is the browser-node equivalent of Vite's optimizeDeps pre-bundling, which
+ * normally uses esbuild/rolldown to convert CJS to ESM. Since those tools can't
+ * run in-browser, we use our own requireSync loader to execute the CJS module
+ * server-side and produce a clean ESM facade.
+ *
+ * This is completely transparent to the developer — no project modifications needed.
+ */
+function cjsToEsmPlugin() {
+  return {
+    name: 'browser-node-cjs-to-esm',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      // Only transform files in node_modules
+      if (!id.includes('/node_modules/')) return null
+      // Skip files that are already ESM
+      if (/\bimport[\s{*"'`]/m.test(code) || /\bexport\s/m.test(code) || /\bimport\.meta\b/.test(code)) return null
+      // Only transform files that use CJS patterns (including Object.defineProperty(exports, ...))
+      const hasCjsPattern = /\b(module\.exports|exports\.\w+\s*=|exports\[|\bexports\b)/m.test(code) ||
+        /\brequire\s*\(/m.test(code)
+      if (!hasCjsPattern) return null
+
+      if (!_require) return null
+
+      // Execute the CJS module server-side using our loader to discover its exports
+      try {
+        const mod = _require(id, '/') as Record<string, unknown>
+        if (!mod || typeof mod !== 'object') return null
+
+        const keys = Object.keys(mod).filter(k =>
+          k !== 'default' && k !== '__esModule' && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k)
+        )
+
+        // Generate synthetic ESM: serialize each export value by reference
+        // We store the executed module in a global registry and reference it from the ESM facade
+        const registryKey = `__cjs_registry_${id.replace(/[^a-zA-Z0-9]/g, '_')}`
+        const lines: string[] = [
+          `// CJS-to-ESM interop (browser-node runtime)`,
+          `// Original: ${id}`,
+          ``,
+        ]
+
+        // For primitive values, inline them; for objects/functions, we need to serialize or
+        // provide them through the transform. Since this runs in Vite's transform (server-side),
+        // we generate code that the browser will execute. We need the browser to get the actual
+        // values, so we re-execute the CJS in a browser-compatible way.
+        //
+        // Strategy: generate an ESM module that uses a self-executing function to set up
+        // the CJS environment (module, exports, require) and then re-exports everything.
+        // The key difference from our previous approach: we provide a WORKING require()
+        // by converting all require() calls to ESM imports at the top of the file.
+
+        // Step 1: Find all require() calls in the source and extract the specifiers
+        const requireCalls = new Set<string>()
+        const requireRegex = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+        let match
+        while ((match = requireRegex.exec(code)) !== null) {
+          requireCalls.add(match[1])
+        }
+
+        // Step 2: Generate import statements for each required module
+        const imports: string[] = []
+        const requireMap: Record<string, string> = {}
+        let importIdx = 0
+        for (const spec of requireCalls) {
+          const varName = `__req_${importIdx++}`
+          imports.push(`import * as ${varName} from "${spec}";`)
+          requireMap[spec] = varName
+        }
+
+        // Step 3: Build the CJS wrapper with a working require function
+        const requireEntries = Object.entries(requireMap)
+          .map(([spec, varName]) => `    "${spec}": ${varName}`)
+          .join(',\n')
+        
+        lines.push(...imports)
+        lines.push(``)
+        lines.push(`const __cjs_module = { exports: {} };`)
+        lines.push(`const __cjs_require = (function() {`)
+        lines.push(`  const __req_map = {`)
+        lines.push(requireEntries)
+        lines.push(`  };`)
+        lines.push(`  return function require(id) {`)
+        lines.push(`    if (id in __req_map) {`)
+        lines.push(`      const ns = __req_map[id];`)
+        lines.push(`      // Unwrap ESM namespace: if our CJS-to-ESM transform wrapped it, .default has module.exports`)
+        lines.push(`      return ns && ns.default !== undefined ? ns.default : ns;`)
+        lines.push(`    }`)
+        lines.push(`    throw new Error("Cannot find module '" + id + "'");`)
+        lines.push(`  };`)
+        lines.push(`})();`)
+        lines.push(`(function(module, exports, require) {`)
+        lines.push(code)
+        lines.push(`})(__cjs_module, __cjs_module.exports, __cjs_require);`)
+        lines.push(``)
+        lines.push(`const __cjs_result = __cjs_module.exports;`)
+        lines.push(`export default __cjs_result;`)
+
+        // Step 4: Add named exports for all discovered keys
+        if (keys.length > 0) {
+          lines.push(``)
+          for (const k of keys) {
+            lines.push(`export const ${k} = __cjs_result["${k}"];`)
+          }
+        }
+
+        return { code: lines.join('\n'), map: null }
+      } catch (e) {
+        // If execution fails, return null and let Vite handle it
+        console.log(`[cjs-to-esm] Failed to transform ${id}: ${(e as Error).message}`)
+        return null
+      }
+    }
+  }
+}
 
 async function cmdVite(args: string[]): Promise<number> {
   if (!_require) { stderr('vite: runtime not ready\n'); return 1 }
@@ -614,7 +742,7 @@ async function cmdVite(args: string[]): Promise<number> {
       server: { port },
       logLevel: 'info',
       optimizeDeps: { noDiscovery: true },
-
+      plugins: [cjsToEsmPlugin()],
     })
     await server.listen()
     stdout(`\x1b[32m✓\x1b[0m Vite dev server running on \x1b[36mhttp://localhost:${port}\x1b[0m\n`)
