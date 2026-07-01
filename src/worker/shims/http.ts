@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import { EventEmitter } from './events'
 import { Readable, Writable } from './stream'
 
@@ -9,22 +10,37 @@ export function getServer(port: number): HttpServer | undefined {
 }
 
 export class IncomingMessage extends Readable {
-  method: string
-  url: string
+  method?: string
+  url?: string
+  statusCode?: number
+  statusMessage?: string
   headers: Record<string, string | string[]>
   httpVersion = '1.1'
   socket = { remoteAddress: '127.0.0.1', localAddress: '127.0.0.1', encrypted: false }
   complete = false
   aborted = false
 
-  constructor(opts: { method: string; url: string; headers: Record<string, string>; body?: ArrayBuffer }) {
+  constructor(opts: {
+    method?: string
+    url?: string
+    statusCode?: number
+    statusMessage?: string
+    headers: Record<string, string | string[]>
+    body?: ArrayBuffer | string | Uint8Array
+  }) {
     super()
-    this.method = opts.method.toUpperCase()
+    this.method = opts.method?.toUpperCase()
     this.url = opts.url
+    this.statusCode = opts.statusCode
+    this.statusMessage = opts.statusMessage ?? 'OK'
     this.headers = opts.headers
+    
     if (opts.body) {
+      const buffer = typeof opts.body === 'string'
+        ? Buffer.from(opts.body)
+        : Buffer.from(opts.body)
       queueMicrotask(() => {
-        this.emit('data', new Uint8Array(opts.body!))
+        this.emit('data', buffer)
         this.readableEnded = true
         this.emit('end')
         this.complete = true
@@ -33,6 +49,208 @@ export class IncomingMessage extends Readable {
       queueMicrotask(() => { this.readableEnded = true; this.emit('end'); this.complete = true })
     }
   }
+}
+
+export class ClientRequest extends Writable {
+  method: string
+  path: string
+  host: string
+  port: number
+  headers: Record<string, string>
+  private _bodyChunks: (string | Uint8Array)[] = []
+  private _url: string
+
+  constructor(
+    options: any,
+    callback?: (res: IncomingMessage) => void
+  ) {
+    super()
+    
+    let parsedUrl: URL | null = null
+    let method = 'GET'
+    let headers: Record<string, string> = {}
+    let path = '/'
+    let host = 'localhost'
+    let port = 80
+
+    if (typeof options === 'string') {
+      parsedUrl = new URL(options)
+    } else if (options instanceof URL) {
+      parsedUrl = options
+    } else if (options && typeof options === 'object') {
+      method = (options.method as string | undefined)?.toUpperCase() ?? 'GET'
+      headers = (options.headers as Record<string, string> | undefined) ?? {}
+      path = (options.path as string | undefined) ?? '/'
+      host = (options.hostname as string | undefined) ?? (options.host as string | undefined) ?? 'localhost'
+      port = (options.port as number | string | undefined) ? Number(options.port) : 80
+      
+      if (options.href) {
+        parsedUrl = new URL(options.href as string)
+      } else if (options.protocol) {
+        parsedUrl = new URL(`${options.protocol}//${host}:${port}${path}`)
+      }
+    }
+
+    if (parsedUrl) {
+      method = method || 'GET'
+      host = parsedUrl.hostname
+      port = parsedUrl.port ? Number(parsedUrl.port) : (parsedUrl.protocol === 'https:' ? 443 : 80)
+      path = parsedUrl.pathname + parsedUrl.search
+    }
+
+    this.method = method
+    this.path = path
+    this.host = host
+    this.port = port
+    this.headers = headers
+    this._url = parsedUrl ? parsedUrl.href : `http://${host}:${port}${path}`
+
+    if (callback) {
+      this.once('response', callback)
+    }
+  }
+
+  write(chunk: string | Uint8Array, _enc?: string, cb?: () => void): boolean {
+    if (chunk != null) {
+      this._bodyChunks.push(chunk)
+    }
+    cb?.()
+    return true
+  }
+
+  end(body?: string | Uint8Array | null, _enc?: string, cb?: () => void): this {
+    if (body != null) {
+      this._bodyChunks.push(body)
+    }
+    cb?.()
+
+    let requestBody: Uint8Array | undefined
+    if (this._bodyChunks.length > 0) {
+      if (this._bodyChunks.every(c => typeof c === 'string')) {
+        requestBody = new TextEncoder().encode(this._bodyChunks.join(''))
+      } else {
+        const parts = this._bodyChunks.map(c => typeof c === 'string' ? new TextEncoder().encode(c) : c)
+        const totalLen = parts.reduce((acc, p) => acc + p.length, 0)
+        const merged = new Uint8Array(totalLen)
+        let offset = 0
+        for (const p of parts) {
+          merged.set(p, offset)
+          offset += p.length
+        }
+        requestBody = merged
+      }
+    }
+
+    this._dispatch(requestBody)
+    return this
+  }
+
+  private async _dispatch(body?: Uint8Array) {
+    const isLocal = this.host === 'localhost' || this.host === '127.0.0.1'
+    const server = isLocal ? getServer(this.port) : undefined
+
+    if (server) {
+      const channel = new MessageChannel()
+      const clientPort = channel.port1
+      const serverPort = channel.port2
+
+      clientPort.onmessage = (e) => {
+        const resMsg = e.data
+        const responseHeaders: Record<string, string> = {}
+        if (resMsg.headers) {
+          for (const [k, v] of Object.entries(resMsg.headers)) {
+            responseHeaders[k.toLowerCase()] = String(v)
+          }
+        }
+        const res = new IncomingMessage({
+          statusCode: resMsg.status ?? 200,
+          headers: responseHeaders,
+          body: typeof resMsg.body === 'string' ? new TextEncoder().encode(resMsg.body) : resMsg.body,
+        })
+        this.emit('response', res)
+        clientPort.close()
+      }
+
+      const bodyBuffer = body ? body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) : undefined
+
+      server.handleRequest({
+        method: this.method,
+        url: this.path,
+        headers: this.headers,
+        body: bodyBuffer,
+        replyPort: serverPort,
+      })
+    } else {
+      try {
+        const fetchHeaders: Record<string, string> = {}
+        for (const [k, v] of Object.entries(this.headers)) {
+          fetchHeaders[k] = Array.isArray(v) ? v.join(', ') : String(v)
+        }
+
+        const response = await fetch(this._url, {
+          method: this.method,
+          headers: fetchHeaders,
+          body: this.method !== 'GET' && this.method !== 'HEAD' ? body : undefined,
+        })
+
+        const resBody = await response.arrayBuffer()
+        
+        const responseHeaders: Record<string, string> = {}
+        response.headers.forEach((v, k) => {
+          responseHeaders[k.toLowerCase()] = v
+        })
+
+        const res = new IncomingMessage({
+          statusCode: response.status,
+          statusMessage: response.statusText,
+          headers: responseHeaders,
+          body: resBody,
+        })
+        this.emit('response', res)
+      } catch (err: any) {
+        this.emit('error', err)
+      }
+    }
+  }
+}
+
+export function request(
+  optionsOrUrl: string | Record<string, any> | URL,
+  optionsOrCallback?: Record<string, any> | ((res: IncomingMessage) => void),
+  callback?: (res: IncomingMessage) => void
+): ClientRequest {
+  let opts = optionsOrUrl
+  let cb = callback
+
+  if (typeof optionsOrCallback === 'function') {
+    cb = optionsOrCallback as (res: IncomingMessage) => void
+  } else if (optionsOrCallback && typeof optionsOrCallback === 'object') {
+    if (typeof optionsOrUrl === 'string' || optionsOrUrl instanceof URL) {
+      const parsed = typeof optionsOrUrl === 'string' ? new URL(optionsOrUrl) : optionsOrUrl
+      opts = {
+        method: 'GET',
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname + parsed.search,
+        ...optionsOrCallback
+      }
+    } else {
+      opts = { ...optionsOrUrl as any, ...optionsOrCallback }
+    }
+  }
+
+  return new ClientRequest(opts, cb)
+}
+
+export function get(
+  optionsOrUrl: string | Record<string, any> | URL,
+  optionsOrCallback?: Record<string, any> | ((res: IncomingMessage) => void),
+  callback?: (res: IncomingMessage) => void
+): ClientRequest {
+  const req = request(optionsOrUrl, optionsOrCallback, callback)
+  req.end()
+  return req
 }
 
 export class ServerResponse extends Writable {
@@ -279,14 +497,11 @@ export const http = {
   IncomingMessage,
   ServerResponse,
   HttpServer,
+  ClientRequest,
   STATUS_CODES,
   METHODS: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'],
-  get: (_url: string, _opts: unknown, _cb?: unknown) => {
-    throw new Error('http.get not supported — use fetch()')
-  },
-  request: (_opts: unknown, _cb?: unknown) => {
-    throw new Error('http.request not supported — use fetch()')
-  },
+  request,
+  get,
 }
 export const https = {
   ...http,

@@ -1,61 +1,61 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { process } from '../src/worker/shims/process'
+import { processShimExport as procShim } from '../src/worker/shims/process'
 
-describe('process shim', () => {
+describe('procShim shim', () => {
   describe('identity fields', () => {
     it('has correct version string', () => {
-      expect(process.version).toMatch(/^v\d+/)
+      expect(procShim.version).toMatch(/^v\d+/)
     })
 
     it('platform is linux', () => {
-      expect(process.platform).toBe('linux')
+      expect(procShim.platform).toBe('linux')
     })
 
     it('arch is x64', () => {
-      expect(process.arch).toBe('x64')
+      expect(procShim.arch).toBe('x64')
     })
 
     it('cwd() returns /app', () => {
-      expect(process.cwd()).toBe('/app')
+      expect(procShim.cwd()).toBe('/app')
     })
 
     it('pid is a number', () => {
-      expect(typeof process.pid).toBe('number')
+      expect(typeof procShim.pid).toBe('number')
     })
   })
 
   describe('env', () => {
     it('has NODE_ENV', () => {
-      expect(process.env.NODE_ENV).toBeDefined()
+      expect(procShim.env.NODE_ENV).toBeDefined()
     })
 
     it('allows setting and reading env vars', () => {
-      process.env.TEST_VAR = 'hello'
-      expect(process.env.TEST_VAR).toBe('hello')
-      delete process.env.TEST_VAR
+      procShim.env.TEST_VAR = 'hello'
+      expect(procShim.env.TEST_VAR).toBe('hello')
+      delete procShim.env.TEST_VAR
     })
   })
 
   describe('nextTick', () => {
     it('fires callback asynchronously', async () => {
       let fired = false
-      process.nextTick(() => { fired = true })
+      procShim.nextTick(() => { fired = true })
       expect(fired).toBe(false)
-      await new Promise(r => queueMicrotask(r))
+      await new Promise(r => setImmediate(r))
       expect(fired).toBe(true)
     })
 
     it('passes arguments to the callback', async () => {
       let received: unknown[] = []
-      process.nextTick((...args) => { received = args }, 'a', 'b', 'c')
-      await new Promise(r => queueMicrotask(r))
+      procShim.nextTick((...args) => { received = args }, 'a', 'b', 'c')
+      await new Promise(r => setImmediate(r))
       expect(received).toEqual(['a', 'b', 'c'])
     })
   })
 
   describe('hrtime', () => {
     it('returns [seconds, nanoseconds] tuple', () => {
-      const [s, ns] = process.hrtime()
+      const [s, ns] = procShim.hrtime()
       expect(typeof s).toBe('number')
       expect(typeof ns).toBe('number')
       expect(ns).toBeGreaterThanOrEqual(0)
@@ -63,14 +63,14 @@ describe('process shim', () => {
     })
 
     it('computes diff when passed a start time', () => {
-      const start = process.hrtime()
-      const diff = process.hrtime(start)
+      const start = procShim.hrtime()
+      const diff = procShim.hrtime(start)
       expect(diff[0]).toBeGreaterThanOrEqual(0)
       expect(diff[1]).toBeGreaterThanOrEqual(0)
     })
 
     it('hrtime.bigint returns a bigint', () => {
-      const t = process.hrtime.bigint()
+      const t = procShim.hrtime.bigint()
       expect(typeof t).toBe('bigint')
       expect(t).toBeGreaterThan(0n)
     })
@@ -78,77 +78,77 @@ describe('process shim', () => {
 
   describe('event emitter', () => {
     beforeEach(() => {
-      process.removeAllListeners()
+      procShim.removeAllListeners()
     })
 
     it('on + emit calls listener', () => {
       const calls: unknown[] = []
-      process.on('test-event', (v) => calls.push(v))
-      process.emit('test-event', 42)
+      procShim.on('test-event', (v) => calls.push(v))
+      procShim.emit('test-event', 42)
       expect(calls).toEqual([42])
     })
 
     it('once fires only once', () => {
       const calls: unknown[] = []
-      process.once('once-event', (v) => calls.push(v))
-      process.emit('once-event', 1)
-      process.emit('once-event', 2)
+      procShim.once('once-event', (v) => calls.push(v))
+      procShim.emit('once-event', 1)
+      procShim.emit('once-event', 2)
       expect(calls).toEqual([1])
     })
 
     it('off removes listener', () => {
       const calls: unknown[] = []
       const fn = (v: unknown) => calls.push(v)
-      process.on('rm-event', fn)
-      process.off('rm-event', fn)
-      process.emit('rm-event', 99)
+      procShim.on('rm-event', fn)
+      procShim.off('rm-event', fn)
+      procShim.emit('rm-event', 99)
       expect(calls).toEqual([])
     })
 
     it('removeListener is alias for off', () => {
       const calls: unknown[] = []
       const fn = (v: unknown) => calls.push(v)
-      process.on('rl-event', fn)
-      process.removeListener('rl-event', fn)
-      process.emit('rl-event', 1)
+      procShim.on('rl-event', fn)
+      procShim.removeListener('rl-event', fn)
+      procShim.emit('rl-event', 1)
       expect(calls).toEqual([])
     })
 
     it('prependListener fires before later listeners', () => {
       const order: string[] = []
-      process.on('order-event', () => order.push('second'))
-      process.prependListener('order-event', () => order.push('first'))
-      process.emit('order-event')
+      procShim.on('order-event', () => order.push('second'))
+      procShim.prependListener('order-event', () => order.push('first'))
+      procShim.emit('order-event')
       expect(order).toEqual(['first', 'second'])
     })
 
     it('removeAllListeners clears a specific event', () => {
       const calls: unknown[] = []
-      process.on('clear-event', () => calls.push('a'))
-      process.on('keep-event', () => calls.push('b'))
-      process.removeAllListeners('clear-event')
-      process.emit('clear-event')
-      process.emit('keep-event')
+      procShim.on('clear-event', () => calls.push('a'))
+      procShim.on('keep-event', () => calls.push('b'))
+      procShim.removeAllListeners('clear-event')
+      procShim.emit('clear-event')
+      procShim.emit('keep-event')
       expect(calls).toEqual(['b'])
     })
 
     it('listenerCount returns count', () => {
       const fn = () => {}
-      process.on('count-event', fn)
-      process.on('count-event', fn)
-      expect(process.listenerCount('count-event')).toBe(2)
-      process.removeAllListeners('count-event')
+      procShim.on('count-event', fn)
+      procShim.on('count-event', fn)
+      expect(procShim.listenerCount('count-event')).toBe(2)
+      procShim.removeAllListeners('count-event')
     })
 
     it('emit returns false when no listeners', () => {
-      expect(process.emit('no-listeners-event')).toBe(false)
+      expect(procShim.emit('no-listeners-event')).toBe(false)
     })
 
     it('emit returns true when listeners exist', () => {
       const fn = () => {}
-      process.on('has-listener', fn)
-      expect(process.emit('has-listener')).toBe(true)
-      process.removeAllListeners('has-listener')
+      procShim.on('has-listener', fn)
+      expect(procShim.emit('has-listener')).toBe(true)
+      procShim.removeAllListeners('has-listener')
     })
   })
 
@@ -156,7 +156,7 @@ describe('process shim', () => {
     it('stdout.write posts message to self', () => {
       const msgs: unknown[] = (globalThis as unknown as { postMessageLog: unknown[] }).postMessageLog
       const prevLen = msgs.length
-      process.stdout.write('hello stdout')
+      procShim.stdout.write('hello stdout')
       expect(msgs.length).toBeGreaterThan(prevLen)
       const last = msgs[msgs.length - 1] as { type: string; text: string }
       expect(last.type).toBe('stdout')
@@ -166,7 +166,7 @@ describe('process shim', () => {
     it('stderr.write posts message to self', () => {
       const msgs: unknown[] = (globalThis as unknown as { postMessageLog: unknown[] }).postMessageLog
       const prevLen = msgs.length
-      process.stderr.write('oh no')
+      procShim.stderr.write('oh no')
       const last = msgs[msgs.length - 1] as { type: string; text: string }
       expect(last.type).toBe('stderr')
       expect(last.text).toBe('oh no')
@@ -175,18 +175,18 @@ describe('process shim', () => {
 
   describe('exit', () => {
     it('throws an error with the exit code', () => {
-      expect(() => process.exit(1)).toThrow('process.exit(1)')
+      expect(() => procShim.exit(1)).toThrow('process.exit(1)')
     })
 
     it('defaults to code 0', () => {
-      expect(() => process.exit()).toThrow('process.exit(0)')
+      expect(() => procShim.exit()).toThrow('process.exit(0)')
     })
   })
 
   describe('argv', () => {
     it('has at least two entries', () => {
-      expect(process.argv.length).toBeGreaterThanOrEqual(2)
-      expect(process.argv[0]).toBe('node')
+      expect(procShim.argv.length).toBeGreaterThanOrEqual(2)
+      expect(procShim.argv[0]).toBe('node')
     })
   })
 })

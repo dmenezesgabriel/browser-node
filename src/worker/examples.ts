@@ -454,6 +454,12 @@ export default function App() {
     }
   }, null, 2))
 
+  writeFileToVfs('/examples/vite-angular-ts/tsconfig.app.json', JSON.stringify({
+    extends: "./tsconfig.json",
+    compilerOptions: {},
+    files: ["src/main.ts"]
+  }, null, 2))
+
   writeFileToVfs('/examples/vite-angular-ts/package.json', JSON.stringify({
     name: 'vite-angular-ts',
     private: true,
@@ -490,6 +496,9 @@ export default defineConfig({
   server: {
     port: 3000,
     hmr: false
+  },
+  optimizeDeps: {
+    disabled: true
   },
   plugins: [angular()]
 })

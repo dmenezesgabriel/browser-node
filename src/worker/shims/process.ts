@@ -7,7 +7,7 @@ function _getListeners(event: string): Listener[] {
   return _listeners.get(event)!
 }
 
-export const process = {
+const processShim = {
   env: {
     NODE_ENV: 'development',
     NODE_NO_WARNINGS: '1',
@@ -21,10 +21,12 @@ export const process = {
   pid: 1,
   ppid: 0,
   exitCode: 0,
+  features: {},
   cwd: () => '/app',
   chdir: (_dir: string) => {},
   nextTick: (fn: (...args: unknown[]) => void, ...args: unknown[]) => {
-    queueMicrotask(() => fn(...args))
+    console.log('[shim-process] nextTick called!')
+    Promise.resolve().then(() => fn(...args))
   },
   hrtime: Object.assign(
     (time?: [number, number]): [number, number] => {
@@ -38,8 +40,7 @@ export const process = {
     { bigint: (): bigint => BigInt(Math.round(performance.now() * 1e6)) }
   ),
   exit: (code = 0) => {
-    console.error('process.exit called!', code, new Error().stack)
-    // Removed throw/freeze to allow logs to flush
+    throw new Error(`process.exit(${code})`)
   },
   stdout: {
     write: (s: string) => { self.postMessage({ type: 'stdout', text: s }); return true },
@@ -53,32 +54,32 @@ export const process = {
     columns: 80,
     rows: 24,
   },
-  on(event: string, listener: Listener) { _getListeners(event).push(listener); return process },
-  addListener(event: string, listener: Listener) { return process.on(event, listener) },
+  on(event: string, listener: Listener) { _getListeners(event).push(listener); return processShim },
+  addListener(event: string, listener: Listener) { return processShim.on(event, listener) },
   once(event: string, listener: Listener) {
-    const wrapped = (...args: unknown[]) => { process.removeListener(event, wrapped); listener(...args) }
-    return process.on(event, wrapped)
+    const wrapped = (...args: unknown[]) => { processShim.removeListener(event, wrapped); listener(...args) }
+    return processShim.on(event, wrapped)
   },
-  off(event: string, listener: Listener) { return process.removeListener(event, listener) },
+  off(event: string, listener: Listener) { return processShim.removeListener(event, listener) },
   removeListener(event: string, listener: Listener) {
     const arr = _getListeners(event)
     const idx = arr.indexOf(listener)
     if (idx !== -1) arr.splice(idx, 1)
-    return process
+    return processShim
   },
   removeAllListeners(event?: string) {
     if (event) _listeners.delete(event)
     else _listeners.clear()
-    return process
+    return processShim
   },
   prependListener(event: string, listener: Listener) {
     const arr = _getListeners(event)
     arr.unshift(listener)
-    return process
+    return processShim
   },
   prependOnceListener(event: string, listener: Listener) {
-    const wrapped = (...args: unknown[]) => { process.removeListener(event, wrapped); listener(...args) }
-    return process.prependListener(event, wrapped)
+    const wrapped = (...args: unknown[]) => { processShim.removeListener(event, wrapped); listener(...args) }
+    return processShim.prependListener(event, wrapped)
   },
   emit(event: string, ...args: unknown[]) {
     const arr = _listeners.get(event)
@@ -91,7 +92,7 @@ export const process = {
   listenerCount(event: string) { return _getListeners(event).length },
   eventNames() { return [..._listeners.keys()] },
   getMaxListeners: () => 10,
-  setMaxListeners: (_n: number) => process,
+  setMaxListeners: (_n: number) => processShim,
   stdin: {
     on(_: string, __: unknown) { return this },
     once(_: string, __: unknown) { return this },
@@ -105,6 +106,15 @@ export const process = {
     readable: false as boolean,
     isRaw: false as boolean,
   },
+  memoryUsage: () => ({
+    rss: 120_000_000,
+    heapTotal: 80_000_000,
+    heapUsed: 40_000_000,
+    external: 10_000_000,
+    arrayBuffers: 5_000_000,
+  }),
+  uptime: () => performance.now() / 1000,
 }
 
-;(globalThis as any).process = process;
+;(globalThis as any).process = processShim;
+export { processShim as process, processShim as processShimExport };

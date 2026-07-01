@@ -43,6 +43,15 @@ console.warn = (...args: unknown[]) => self.postMessage({ type: 'stderr', text: 
 console.error = (...args: unknown[]) => self.postMessage({ type: 'stderr', text: _fmtArgs(...args) })
 console.debug = console.log
 
+self.addEventListener('unhandledrejection', (event) => {
+  console.error('[worker:unhandledRejection]', event.reason?.message || event.reason)
+  if (event.reason?.stack) console.error(event.reason.stack)
+})
+self.addEventListener('error', (event) => {
+  console.error('[worker:uncaughtException]', event.error?.message || event.error)
+  if (event.error?.stack) console.error(event.error.stack)
+})
+
 import { preloadShims, requireSync, resolveModule, clearModuleCache, registerFileOverride } from './loader'
 import { bindRequireSync } from './shims/index'
 import { install } from './npm'
@@ -50,6 +59,30 @@ import { writeFileToVfs, dumpVfs, memfsInstance } from './vfs'
 import { getServer } from './shims/http'
 import { bindTerminalDeps, runCommand, getCwd } from './terminal-cmd'
 import { initExamples } from './examples'
+
+// Override Function constructor to support dynamic imports (bare specifiers) inside evaluated code
+const OriginalFunction = globalThis.Function
+function CustomFunction(this: any, ...args: string[]) {
+  const body = args[args.length - 1]
+  if (typeof body === 'string' && (body.includes('return import(') || body.includes('return import(modulePath)'))) {
+    return function(modulePath: string) {
+      try {
+        const cwd = getCwd ? getCwd() : '/app'
+        const res = requireSync(modulePath, cwd)
+        return Promise.resolve(res)
+      } catch (err) {
+        return Promise.reject(err)
+      }
+    }
+  }
+  
+  if (!(this instanceof CustomFunction)) {
+    return OriginalFunction(...args)
+  }
+  return Reflect.construct(OriginalFunction, args, new.target)
+}
+CustomFunction.prototype = OriginalFunction.prototype
+globalThis.Function = CustomFunction as any
 
 // Wire up createRequire in the node:module shim (can't import requireSync there — circular)
 bindRequireSync(requireSync, resolveModule)

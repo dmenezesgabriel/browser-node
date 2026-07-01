@@ -50,6 +50,7 @@ import esbuildShim from './esbuild'
 import chokidarShim from './chokidar'
 import connectDefault, { createServer as connectCreateServer } from './connect'
 import sirvDefault from './sirv'
+import piscinaShim from './piscina'
 export { process } from './process'
 export { path } from './path'
 export { EventEmitter } from './events'
@@ -127,7 +128,14 @@ const _url = {
 // The buffer npm package doesn't export MAX_STRING_LENGTH or constants;
 // thread-stream accesses buffer.constants.MAX_STRING_LENGTH, pino uses Buffer.MAX_STRING_LENGTH
 ;(Buffer as Record<string, unknown>).MAX_STRING_LENGTH = 4294967296
-const _buffer = { Buffer, default: Buffer, constants: { MAX_STRING_LENGTH: 4294967296, MAX_LENGTH: 4294967296 } }
+;(Buffer as Record<string, unknown>).kMaxLength = 2147483647
+const _buffer = {
+  Buffer,
+  default: Buffer,
+  constants: { MAX_STRING_LENGTH: 4294967296, MAX_LENGTH: 4294967296 },
+  kMaxLength: 2147483647,
+  kStringMaxLength: 1073741823
+}
 // Node.js: require('events') returns the EventEmitter constructor directly
 // (it's callable as `new (require('events'))()` and has `.EventEmitter` property)
 const _events = Object.assign(EventEmitter, { EventEmitter, EventEmitterAsyncResource, default: EventEmitter })
@@ -505,12 +513,12 @@ function _tsTransformSync(code: string, filename?: string, lang?: string): strin
       _isBuiltinShim?: boolean
     }
     if (ts?.transpileModule && !ts._isBuiltinShim) {
+      const isJsx = filename?.endsWith('.jsx') || filename?.endsWith('.tsx') || lang === 'jsx' || lang === 'tsx'
       return ts.transpileModule(code, {
         compilerOptions: {
           target: 99, // ESNext
           module: 99, // ESNext
-          jsx: 1, // Preserve (let Vite handle it if possible, or React)
-          // Actually, we want to compile JSX away so Vite's import-analysis can parse it
+          jsx: isJsx ? 2 : 1,
         }
       }).outputText
     }
@@ -689,20 +697,34 @@ const _rollupBundle = {
 _rollupBundle.default = _rollupBundle
 
 // picocolors stub for packages that import it outside Vite's bundle
-const _picocolors = {
-  isColorSupported: false,
-  reset: (s: string) => s, bold: (s: string) => s, dim: (s: string) => s,
-  italic: (s: string) => s, underline: (s: string) => s, inverse: (s: string) => s,
-  hidden: (s: string) => s, strikethrough: (s: string) => s,
-  black: (s: string) => s, red: (s: string) => s, green: (s: string) => s,
-  yellow: (s: string) => s, blue: (s: string) => s, magenta: (s: string) => s,
-  cyan: (s: string) => s, white: (s: string) => s, gray: (s: string) => s,
-  bgBlack: (s: string) => s, bgRed: (s: string) => s, bgGreen: (s: string) => s,
-  bgYellow: (s: string) => s, bgBlue: (s: string) => s, bgMagenta: (s: string) => s,
-  bgCyan: (s: string) => s, bgWhite: (s: string) => s,
-  default: undefined as unknown,
+const _identity = (s: any) => String(s)
+const createColors = (enabled = false) => {
+  const pc: any = {
+    isColorSupported: enabled,
+    reset: _identity, bold: _identity, dim: _identity,
+    italic: _identity, underline: _identity, inverse: _identity,
+    hidden: _identity, strikethrough: _identity,
+    black: _identity, red: _identity, green: _identity,
+    yellow: _identity, blue: _identity, magenta: _identity,
+    cyan: _identity, white: _identity, gray: _identity,
+    bgBlack: _identity, bgRed: _identity, bgGreen: _identity,
+    bgYellow: _identity, bgBlue: _identity, bgMagenta: _identity,
+    bgCyan: _identity, bgWhite: _identity,
+    blackBright: _identity, redBright: _identity, greenBright: _identity,
+    yellowBright: _identity, blueBright: _identity, magentaBright: _identity,
+    cyanBright: _identity, whiteBright: _identity,
+    bgBlackBright: _identity, bgRedBright: _identity, bgGreenBright: _identity,
+    bgYellowBright: _identity, bgBlueBright: _identity, bgMagentaBright: _identity,
+    bgCyanBright: _identity, bgWhiteBright: _identity,
+    createColors: undefined as any,
+    default: undefined as any,
+  }
+  pc.createColors = createColors
+  pc.default = pc
+  return pc
 }
-_picocolors.default = _picocolors
+const _picocolors = createColors(false)
+
 
 // connect's default export IS the factory function; attach extra props so named imports work
 const _connectFn = connectDefault as typeof connectDefault & { default: unknown; createServer: typeof connectCreateServer }
@@ -871,7 +893,14 @@ export const shimMap: Record<string, unknown> = {
     setTimeout: (ms: number) => new Promise(r => setTimeout(r, ms)),
     setImmediate: () => new Promise(r => setTimeout(r, 0)),
   },
-  perf_hooks: { performance },
+  perf_hooks: { 
+    performance,
+    PerformanceObserver: class PerformanceObserver {
+      constructor() {}
+      observe() {}
+      disconnect() {}
+    }
+  },
   child_process: _childProcess,
   net: _net,
   tls: _tls,
@@ -887,6 +916,7 @@ export const shimMap: Record<string, unknown> = {
   cluster: { isMaster: true, isWorker: false, fork: () => { throw new Error('cluster not supported') } },
   'worker_threads': _workerThreads,
   'ws': ws,
+  piscina: typeof piscinaShim === 'function' ? piscinaShim : (piscinaShim as any).default,
   'string_decoder': {
     StringDecoder: class {
       encoding: string
@@ -917,7 +947,14 @@ export const shimMap: Record<string, unknown> = {
     setTimeout: (ms: number) => new Promise(r => setTimeout(r, ms)),
     setImmediate: () => new Promise(r => setTimeout(r, 0)),
   },
-  'node:perf_hooks': { performance },
+  'node:perf_hooks': { 
+    performance,
+    PerformanceObserver: class PerformanceObserver {
+      constructor() {}
+      observe() {}
+      disconnect() {}
+    }
+  },
   'node:child_process': _childProcess,
   'node:net': _net,
   'node:tls': _tls,
@@ -1125,9 +1162,9 @@ export const shimMap: Record<string, unknown> = {
       asyncEnd: { publish: _noop, subscribe: _noop, unsubscribe: _noop, hasSubscribers: false },
       error: { publish: _noop, subscribe: _noop, unsubscribe: _noop, hasSubscribers: false },
       subscribe: _noop, unsubscribe: _noop,
-      traceSync: (fn: (...a: unknown[]) => unknown, ctx: unknown, ...a: unknown[]) => fn.apply(ctx, a),
-      traceCallback: (fn: (...a: unknown[]) => unknown, pos: number, ctx: unknown, ...a: unknown[]) => fn.apply(ctx, a),
-      tracePromise: (fn: (...a: unknown[]) => unknown, ctx: unknown, ...a: unknown[]) => fn.apply(ctx, a),
+      traceSync: (fn: (...a: unknown[]) => unknown, context: unknown = {}, thisArg: unknown = undefined, ...a: unknown[]) => fn.apply(thisArg, a),
+      traceCallback: (fn: (...a: unknown[]) => unknown, pos: number = -1, context: unknown = {}, thisArg: unknown = undefined, ...a: unknown[]) => fn.apply(thisArg, a),
+      tracePromise: (fn: (...a: unknown[]) => unknown, context: unknown = {}, thisArg: unknown = undefined, ...a: unknown[]) => fn.apply(thisArg, a),
     })
     const m = { channel: _ch, hasSubscribers: (n: string) => _ch(n).hasSubscribers, subscribe: (n: string, fn: (d: unknown) => void) => _ch(n).subscribe(fn), unsubscribe: (n: string, fn: (d: unknown) => void) => _ch(n).unsubscribe(fn), tracingChannel: _tracingChannel, default: undefined as unknown }
     m.default = m; return m
@@ -1150,9 +1187,9 @@ export const shimMap: Record<string, unknown> = {
       asyncEnd: { publish: _noop2, subscribe: _noop2, unsubscribe: _noop2, hasSubscribers: false },
       error: { publish: _noop2, subscribe: _noop2, unsubscribe: _noop2, hasSubscribers: false },
       subscribe: _noop2, unsubscribe: _noop2,
-      traceSync: (fn: (...a: unknown[]) => unknown, ctx: unknown, ...a: unknown[]) => fn.apply(ctx, a),
-      traceCallback: (fn: (...a: unknown[]) => unknown, pos: number, ctx: unknown, ...a: unknown[]) => fn.apply(ctx, a),
-      tracePromise: (fn: (...a: unknown[]) => unknown, ctx: unknown, ...a: unknown[]) => fn.apply(ctx, a),
+      traceSync: (fn: (...a: unknown[]) => unknown, context: unknown = {}, thisArg: unknown = undefined, ...a: unknown[]) => fn.apply(thisArg, a),
+      traceCallback: (fn: (...a: unknown[]) => unknown, pos: number = -1, context: unknown = {}, thisArg: unknown = undefined, ...a: unknown[]) => fn.apply(thisArg, a),
+      tracePromise: (fn: (...a: unknown[]) => unknown, context: unknown = {}, thisArg: unknown = undefined, ...a: unknown[]) => fn.apply(thisArg, a),
     })
     const m2 = { channel: _ch2, hasSubscribers: (n: string) => _ch2(n).hasSubscribers, subscribe: (n: string, fn: (d: unknown) => void) => _ch2(n).subscribe(fn), unsubscribe: (n: string, fn: (d: unknown) => void) => _ch2(n).unsubscribe(fn), tracingChannel: _tracingChannel2, default: undefined as unknown }
     m2.default = m2; return m2

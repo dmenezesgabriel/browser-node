@@ -223,12 +223,35 @@ describe('http shim', () => {
       expect(http.METHODS).toContain('POST')
     })
 
-    it('http.get throws with guidance', () => {
-      expect(() => (http as unknown as { get: () => void }).get()).toThrow('use fetch()')
+    it('http.get is a function', () => {
+      expect(typeof http.get).toBe('function')
     })
 
-    it('http.request throws with guidance', () => {
-      expect(() => (http as unknown as { request: () => void }).request()).toThrow('use fetch()')
+    it('http.request is a function', () => {
+      expect(typeof http.request).toBe('function')
+    })
+
+    it('can request internally using http.get', async () => {
+      const s = createServer((req, res) => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ status: 'ok' }))
+      })
+      s.listen(3180)
+      
+      const resData = await new Promise<string>((resolve, reject) => {
+        http.get('http://localhost:3180/test', (res) => {
+          let data = ''
+          res.on('data', chunk => {
+            if (typeof chunk === 'string') data += chunk
+            else data += new TextDecoder().decode(chunk)
+          })
+          res.on('end', () => resolve(data))
+        }).on('error', reject)
+      })
+
+      const json = JSON.parse(resData)
+      expect(json.status).toBe('ok')
+      s.close()
     })
   })
 

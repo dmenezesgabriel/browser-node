@@ -1,81 +1,96 @@
 import { EventEmitter } from './events'
 
-export class Readable extends EventEmitter {
-  readable = true
-  destroyed = false
-  readableEnded = false
-  readableFlowing: boolean | null = null
-  readableLength = 0
-  readableHighWaterMark = 16384
-  readableObjectMode = false
-  readableEncoding: string | null = null
-
-  pipe<T extends Writable>(dest: T): T {
-    this.on('data', (chunk) => dest.write(chunk as Buffer | string))
+export function Readable(this: any) {
+  EventEmitter.call(this)
+  this.readable = true
+  this.destroyed = false
+  this.readableEnded = false
+  this.readableFlowing = null
+  this.readableLength = 0
+  this.readableHighWaterMark = 16384
+  this.readableObjectMode = false
+  this.readableEncoding = null
+}
+Object.setPrototypeOf(Readable.prototype, EventEmitter.prototype)
+Object.setPrototypeOf(Readable, EventEmitter)
+Object.assign(Readable.prototype, {
+  pipe(dest: any) {
+    this.on('data', (chunk: any) => dest.write(chunk))
     this.on('end', () => dest.end())
     return dest
-  }
-
-  destroy(_err?: Error): this { this.destroyed = true; this.emit('close'); return this }
-  resume(): this { this.readableFlowing = true; return this }
-  pause(): this { this.readableFlowing = false; return this }
-  read(_n?: number): unknown { return null }
-  setEncoding(enc: string): this { this.readableEncoding = enc; return this }
-  unpipe(): this { return this }
-  unshift(_chunk: unknown): void {}
-  wrap(_stream: unknown): this { return this }
-
-  static from(iterable: Iterable<unknown>): Readable {
-    const r = new Readable()
-    queueMicrotask(async () => {
-      for (const chunk of iterable) r.emit('data', chunk)
-      r.emit('end')
-    })
-    return r
-  }
+  },
+  destroy(_err?: Error) { this.destroyed = true; this.emit('close'); return this },
+  resume() { this.readableFlowing = true; return this },
+  pause() { this.readableFlowing = false; return this },
+  read(_n?: number) { return null },
+  setEncoding(enc: string) { this.readableEncoding = enc; return this },
+  unpipe() { return this },
+  unshift(_chunk: unknown) {},
+  wrap(_stream: unknown) { return this }
+})
+Readable.from = function(iterable: Iterable<unknown>) {
+  const r = new (Readable as any)()
+  queueMicrotask(async () => {
+    for (const chunk of iterable) r.emit('data', chunk)
+    r.emit('end')
+  })
+  return r
 }
 
-export class Writable extends EventEmitter {
-  writable = true
-  destroyed = false
-  private _chunks: (string | Uint8Array)[] = []
-
-  write(chunk: string | Uint8Array, _enc?: string, cb?: () => void): boolean {
+export function Writable(this: any) {
+  EventEmitter.call(this)
+  this.writable = true
+  this.destroyed = false
+  this._chunks = []
+}
+Object.setPrototypeOf(Writable.prototype, EventEmitter.prototype)
+Object.setPrototypeOf(Writable, EventEmitter)
+Object.assign(Writable.prototype, {
+  write(chunk: any, _enc?: string, cb?: () => void) {
     this._chunks.push(chunk)
     this.emit('data', chunk)
     cb?.()
     return true
-  }
-
-  end(chunk?: string | Uint8Array, _enc?: string, cb?: () => void): this {
+  },
+  end(chunk?: any, _enc?: string, cb?: () => void) {
     if (chunk !== undefined) this.write(chunk)
     this.emit('finish')
     this.emit('end')
     cb?.()
     return this
+  },
+  destroy() { this.destroyed = true; return this },
+  setDefaultEncoding(_encoding: string) { return this },
+  cork() {},
+  uncork() {},
+  getContents() {
+    return this._chunks.map((c: any) => typeof c === 'string' ? c : new TextDecoder().decode(c)).join('')
   }
+})
 
-  destroy(): this { this.destroyed = true; return this }
-
-  getContents(): string {
-    return this._chunks.map(c => typeof c === 'string' ? c : new TextDecoder().decode(c)).join('')
-  }
+export function Transform(this: any) {
+  Writable.call(this)
+  this.readable = true
 }
+Object.setPrototypeOf(Transform.prototype, Writable.prototype)
+Object.setPrototypeOf(Transform, Writable)
 
-export class Transform extends Writable {
-  readable = true
+export function PassThrough(this: any) {
+  Transform.call(this)
 }
+Object.setPrototypeOf(PassThrough.prototype, Transform.prototype)
+Object.setPrototypeOf(PassThrough, Transform)
 
-export class PassThrough extends Transform {}
+export function Stream(this: any) {
+  EventEmitter.call(this)
+}
+Object.setPrototypeOf(Stream.prototype, EventEmitter.prototype)
+Object.setPrototypeOf(Stream, EventEmitter)
 
-// Stream class — Node.js's require('stream') returns this constructor,
-// which also has Readable/Writable/etc. as properties.
-export class Stream extends EventEmitter {
-  pipe<T extends Writable>(dest: T): T {
-    this.on('data', (chunk) => dest.write(chunk as Buffer | string))
-    this.on('end', () => dest.end())
-    return dest
-  }
+Stream.prototype.pipe = function<T extends Writable>(this: any, dest: T): T {
+  this.on('data', (chunk: any) => dest.write(chunk))
+  this.on('end', () => dest.end())
+  return dest
 }
 
 // Attach subclasses as static properties (matches Node.js stream module shape)
