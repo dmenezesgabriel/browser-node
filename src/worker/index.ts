@@ -284,6 +284,9 @@ function _registerPostInstallOverrides() {
       teardownTraceSubscriber: binding.teardownTraceSubscriber,
       // Named exports used by Turbopack hot reloader
       createDefineEnv: createDefineEnvStub,
+      lockfilePatchPromise: { cur: Promise.resolve() },
+      getModuleNamedExports: binding.getModuleNamedExports,
+      warnForEdgeRuntime: binding.warnForEdgeRuntime,
     }
   }
 

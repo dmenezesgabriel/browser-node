@@ -475,15 +475,6 @@ ${src}
     }
   }
 
-  // Hack for Next.js swc shim bug
-  if (filePath.endsWith('next/dist/build/swc/index.js')) {
-    if (!mod.exports.lockfilePatchPromise) {
-      mod.exports.lockfilePatchPromise = { cur: Promise.resolve() }
-    } else if (!mod.exports.lockfilePatchPromise.cur) {
-      mod.exports.lockfilePatchPromise.cur = Promise.resolve()
-    }
-  }
-
   return mod
 }
 
