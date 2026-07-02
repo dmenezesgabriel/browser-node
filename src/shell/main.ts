@@ -194,11 +194,12 @@ const btnEditor       = document.getElementById('btn-editor') as HTMLButtonEleme
 const btnPreview      = document.getElementById('btn-preview') as HTMLButtonElement
 const btnRun          = document.getElementById('btn-run') as HTMLButtonElement
 const btnNewFile      = document.getElementById('btn-new-file') as HTMLButtonElement
-const btnNewFileTb    = document.getElementById('btn-new-file-tb') as HTMLButtonElement
 const btnRefresh      = document.getElementById('btn-refresh') as HTMLButtonElement
 const statusbarFile   = document.getElementById('statusbar-file') as HTMLSpanElement
 const statusbarMsg    = document.getElementById('statusbar-msg') as HTMLSpanElement
 const termDrag        = document.getElementById('terminal-drag') as HTMLDivElement
+const editorTabs      = document.getElementById('editor-tabs') as HTMLDivElement
+const sidebarDrag     = document.getElementById('sidebar-drag') as HTMLDivElement
 
 // ── UI components ─────────────────────────────────────────────────────────────
 
@@ -231,6 +232,74 @@ document.addEventListener('keydown', (e) => {
     setSidebar(!sidebarOpen)
   }
 })
+
+// ── Tabs State ────────────────────────────────────────────────────────────────
+
+const openFiles: string[] = []
+let activeFile: string | null = null
+
+function updateTabsUI() {
+  editorTabs.innerHTML = ''
+  if (openFiles.length === 0) {
+    editorTabs.classList.add('hidden')
+    statusbarFile.textContent = 'No file open'
+    return
+  }
+  editorTabs.classList.remove('hidden')
+  for (const file of openFiles) {
+    const tab = document.createElement('div')
+    tab.className = 'editor-tab' + (file === activeFile ? ' active' : '')
+    const name = file.split('/').pop() || file
+    
+    const nameEl = document.createElement('span')
+    nameEl.className = 'editor-tab-name'
+    nameEl.textContent = name
+    nameEl.title = file
+    tab.appendChild(nameEl)
+    
+    const closeBtn = document.createElement('button')
+    closeBtn.className = 'editor-tab-close'
+    closeBtn.textContent = '×'
+    closeBtn.title = 'Close'
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      closeTab(file)
+    })
+    tab.appendChild(closeBtn)
+
+    tab.addEventListener('click', () => {
+      if (activeFile !== file) {
+        activeFile = file
+        editor.switchFile(file)
+        explorer.setActive(file)
+        statusbarFile.textContent = file
+        updateTabsUI()
+      }
+    })
+    editorTabs.appendChild(tab)
+  }
+}
+
+function closeTab(file: string) {
+  const idx = openFiles.indexOf(file)
+  if (idx === -1) return
+  openFiles.splice(idx, 1)
+  editor.closeFile(file)
+  if (activeFile === file) {
+    activeFile = openFiles.length > 0 ? openFiles[Math.max(0, idx - 1)] : null
+    if (activeFile) {
+      editor.switchFile(activeFile)
+      explorer.setActive(activeFile)
+      statusbarFile.textContent = activeFile
+      editorPanel.style.display = ''
+    } else {
+      explorer.setActive('')
+      statusbarFile.textContent = 'No file open'
+      editorPanel.style.display = 'none'
+    }
+  }
+  updateTabsUI()
+}
 
 // ── Tab toggle ────────────────────────────────────────────────────────────────
 
@@ -290,7 +359,6 @@ function promptNewFile() {
 }
 
 btnNewFile.addEventListener('click', promptNewFile)
-btnNewFileTb.addEventListener('click', promptNewFile)
 
 // ── Preview refresh ───────────────────────────────────────────────────────────
 
@@ -322,18 +390,42 @@ termDrag.addEventListener('mousedown', (e) => {
 })
 
 document.addEventListener('mousemove', (e) => {
-  if (!_dragging) return
-  const delta = _dragStartY - e.clientY
-  const newH = Math.max(80, Math.min(window.innerHeight * 0.8, _dragStartH + delta))
-  termPanel.style.height = newH + 'px'
-  terminalUI.refit()
+  if (_dragging) {
+    const delta = _dragStartY - e.clientY
+    const newH = Math.max(80, Math.min(window.innerHeight * 0.8, _dragStartH + delta))
+    termPanel.style.height = newH + 'px'
+    terminalUI.refit()
+  }
+  if (_sbDragging) {
+    const delta = e.clientX - _sbStartX
+    const newW = Math.max(150, Math.min(window.innerWidth * 0.6, _sbStartW + delta))
+    document.documentElement.style.setProperty('--sidebar-w', `${newW}px`)
+    if (!sidebarOpen) setSidebar(true)
+    terminalUI.refit()
+  }
 })
 
 document.addEventListener('mouseup', () => {
-  if (!_dragging) return
-  _dragging = false
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
+  if (_dragging || _sbDragging) {
+    _dragging = false
+    _sbDragging = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+})
+
+// ── Sidebar resize drag ───────────────────────────────────────────────────────
+
+let _sbDragging = false
+let _sbStartX = 0
+let _sbStartW = 0
+
+sidebarDrag.addEventListener('mousedown', (e) => {
+  _sbDragging = true
+  _sbStartX = e.clientX
+  _sbStartW = sidebar.offsetWidth
+  document.body.style.cursor = 'ew-resize'
+  document.body.style.userSelect = 'none'
 })
 
 // ── Worker messages ───────────────────────────────────────────────────────────
@@ -433,9 +525,13 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
 
   if (type === 'vfs-read-result') {
     if (p.content !== null && p.content !== undefined) {
-      editor.setContent(p.content, p.path)
+      if (!openFiles.includes(p.path)) openFiles.push(p.path)
+      activeFile = p.path
+      editor.openFile(p.content, p.path)
       explorer.setActive(p.path)
       statusbarFile.textContent = p.path
+      editorPanel.style.display = ''
+      updateTabsUI()
       showTab('editor')
     }
     return

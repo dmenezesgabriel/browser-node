@@ -23,12 +23,12 @@ const heightTheme = EditorView.theme({
 
 export class Editor {
   private view: EditorView
-  private _filename = '/app/index.js'
+  private _filename = ''
+  private states = new Map<string, EditorState>()
   onSave?: (content: string, filename: string) => void
 
   constructor(container: HTMLElement) {
     this.view = new EditorView({
-      state: this._state('// Write your code here\n', this._filename),
       parent: container,
     })
   }
@@ -40,11 +40,41 @@ export class Editor {
     })
   }
 
-  get value(): string { return this.view.state.doc.toString() }
+  get value(): string { return this.view.state?.doc.toString() ?? '' }
   get filename(): string { return this._filename }
 
-  setContent(content: string, filename: string) {
+  openFile(content: string, filename: string) {
+    if (this._filename && this.view.state) {
+      this.states.set(this._filename, this.view.state)
+    }
     this._filename = filename
-    this.view.setState(this._state(content, filename))
+    let state = this.states.get(filename)
+    if (!state) {
+      state = this._state(content, filename)
+      this.states.set(filename, state)
+    }
+    this.view.setState(state)
+  }
+
+  switchFile(filename: string) {
+    if (this._filename && this.view.state) {
+      this.states.set(this._filename, this.view.state)
+    }
+    this._filename = filename
+    const state = this.states.get(filename)
+    if (state) {
+      this.view.setState(state)
+    }
+  }
+
+  closeFile(filename: string) {
+    this.states.delete(filename)
+    if (this._filename === filename) {
+      this._filename = ''
+    }
+  }
+
+  hasFile(filename: string) {
+    return this.states.has(filename)
   }
 }

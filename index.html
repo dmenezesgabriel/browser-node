@@ -62,7 +62,7 @@
         border-bottom: 1px solid var(--border);
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 8px;
         padding: 0 10px;
         user-select: none;
         z-index: 10;
@@ -123,22 +123,6 @@
 
       #toolbar-spacer { flex: 1; min-width: 0; }
 
-      #btn-new-file-tb {
-        font-size: 12px;
-        font-family: var(--font-ui);
-        padding: 5px 12px;
-        background: transparent;
-        color: var(--text-muted);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        cursor: pointer;
-        transition: all var(--transition);
-        white-space: nowrap;
-        display: none;
-      }
-      @media (min-width: 600px) { #btn-new-file-tb { display: inline-flex; align-items: center; gap: 5px; } }
-      #btn-new-file-tb:hover { color: var(--text); border-color: var(--accent); }
-
       #btn-run {
         font-size: 12px;
         font-family: var(--font-ui);
@@ -178,10 +162,22 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        transition: width var(--transition);
+        position: relative;
+        transition: width 0s; /* removed transition for smooth drag */
         flex-shrink: 0;
       }
-      #sidebar.collapsed { width: 0; border-right-color: transparent; }
+      #sidebar.collapsed { width: 0 !important; border-right-color: transparent; }
+
+      #sidebar-drag {
+        position: absolute;
+        top: 0; bottom: 0; right: -2px;
+        width: 5px;
+        cursor: ew-resize;
+        z-index: 5;
+        background: transparent;
+        transition: background var(--transition);
+      }
+      #sidebar-drag:hover { background: rgba(88,166,255,0.2); }
 
       #sidebar-header {
         padding: 7px 10px 6px;
@@ -260,12 +256,67 @@
         flex: 1;
         overflow: hidden;
         min-height: 0;
+        display: flex;
+        flex-direction: column;
         position: relative;
       }
+      
+      #editor-tabs {
+        display: flex;
+        background: var(--bg-toolbar);
+        height: 35px;
+        flex-shrink: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+      #editor-tabs.hidden { display: none; }
+      #editor-tabs::-webkit-scrollbar { height: 0; }
+      .editor-tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        background: var(--bg-toolbar);
+        color: var(--text-muted);
+        border-right: 1px solid var(--border);
+        cursor: pointer;
+        font-family: var(--font-ui);
+        font-size: 12px;
+        user-select: none;
+        min-width: 100px;
+        max-width: 200px;
+      }
+      .editor-tab:hover { background: var(--bg-hover); }
+      .editor-tab.active {
+        background: var(--bg-panel);
+        color: var(--text);
+        border-top: 2px solid var(--accent);
+      }
+      .editor-tab-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editor-tab-close {
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        border-radius: 3px;
+        width: 18px; height: 18px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 14px;
+        line-height: 1;
+        opacity: 0;
+        transition: opacity 0.1s, background 0.1s;
+      }
+      .editor-tab:hover .editor-tab-close, .editor-tab.active .editor-tab-close { opacity: 1; }
+      .editor-tab-close:hover { background: rgba(255,255,255,0.1); color: var(--text); }
 
       #editor-panel {
-        position: absolute;
-        inset: 0;
+        flex: 1;
+        position: relative;
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -456,12 +507,12 @@
           <button class="tab-btn"        id="btn-preview">Preview</button>
         </div>
         <div id="toolbar-spacer"></div>
-        <button id="btn-new-file-tb">+ New File</button>
         <button id="btn-run" disabled>&#9654; Run</button>
         <div id="worker-status" title="Worker status"></div>
       </div>
 
       <div id="sidebar">
+        <div id="sidebar-drag"></div>
         <div id="sidebar-header">
           <span>Explorer</span>
           <button id="btn-new-file" title="New file">+</button>
@@ -471,6 +522,7 @@
 
       <div id="main">
         <div id="editor-area">
+          <div id="editor-tabs"></div>
           <div id="editor-panel"></div>
           <div id="preview-panel">
             <div id="preview-bar">
