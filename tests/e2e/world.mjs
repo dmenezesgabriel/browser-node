@@ -1,7 +1,7 @@
 import { setWorldConstructor, World } from '@cucumber/cucumber'
 import { chromium } from '/home/gabriel-menezes/.nvm/versions/node/v24.15.0/lib/node_modules/@playwright/cli/node_modules/playwright/index.mjs'
 
-const BASE = 'http://localhost:5179'
+const BASE = 'http://localhost:5173'
 
 // Module-level browser instance shared across all scenarios in a run.
 let browser = null
