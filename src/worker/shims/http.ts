@@ -355,6 +355,9 @@ export class ServerResponse extends Writable {
   }
 
   flushHeaders(): void { this.headersSent = true }
+  _implicitHeader(): void {
+    this.writeHead(this.statusCode)
+  }
 }
 
 export class HttpServer extends EventEmitter {
