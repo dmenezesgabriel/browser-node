@@ -229,6 +229,11 @@ function setSidebar(open: boolean) {
 setSidebar(sidebarOpen)
 btnSidebarTgl.addEventListener('click', () => setSidebar(!sidebarOpen))
 
+const sidebarBackdrop = document.getElementById('sidebar-backdrop')
+if (sidebarBackdrop) {
+  sidebarBackdrop.addEventListener('click', () => setSidebar(false))
+}
+
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
     e.preventDefault()
