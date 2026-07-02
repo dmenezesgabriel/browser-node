@@ -54,7 +54,7 @@ Object.assign(EventEmitter.prototype, {
   },
 
   listenerCount(event: string): number { return this._e().get(event)?.length ?? 0 },
-  listeners(event: string): Function[] { return this._e().get(event) ?? [] },
+  listeners(event: string): Function[] { return (this._e().get(event) ?? []).slice() },
   rawListeners(event: string): Function[] { return this.listeners(event) },
   prependListener(event: string, listener: (...args: unknown[]) => void): any {
     const e = this._e()
