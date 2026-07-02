@@ -7,6 +7,7 @@ export class FileExplorer {
   private expanded = new Set<string>(['/'])
   private dirs = new Map<string, VfsEntry[]>()
   private active = ''
+  private renderTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(container: HTMLElement, onOpen: (path: string) => void, onNeedDir: (path: string) => void) {
     this.container = container
@@ -25,12 +26,24 @@ export class FileExplorer {
 
   setActive(path: string) {
     this.active = path
-    this._render()
+    const items = this.container.querySelectorAll('.explorer-item')
+    for (let i = 0; i < items.length; i++) {
+      const el = items[i] as HTMLElement
+      if (el.dataset.path === path) {
+        el.classList.add('active')
+      } else {
+        el.classList.remove('active')
+      }
+    }
   }
 
   private _render() {
-    this.container.innerHTML = ''
-    this._renderDir('/', 0)
+    if (this.renderTimer) return
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = null
+      this.container.innerHTML = ''
+      this._renderDir('/', 0)
+    }, 0)
   }
 
   private _renderDir(path: string, depth: number) {
@@ -47,6 +60,7 @@ export class FileExplorer {
     for (const e of entries) {
       const fp = path === '/' ? '/' + e.name : path + '/' + e.name
       const el = document.createElement('div')
+      el.dataset.path = fp
       el.className = 'explorer-item' + (e.isDir ? ' dir' : ' file') + (fp === this.active ? ' active' : '')
       el.style.paddingLeft = `${depth * 12 + 8}px`
 
@@ -68,8 +82,7 @@ export class FileExplorer {
       } else {
         el.textContent = `  ${e.name}`
         el.addEventListener('click', () => {
-          this.active = fp
-          this._render()
+          this.setActive(fp)
           this.onOpen(fp)
         })
         this.container.appendChild(el)
