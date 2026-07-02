@@ -192,7 +192,6 @@ const workerStatusEl  = document.getElementById('worker-status') as HTMLDivEleme
 const btnSidebarTgl   = document.getElementById('btn-sidebar-toggle') as HTMLButtonElement
 const btnEditor       = document.getElementById('btn-editor') as HTMLButtonElement
 const btnPreview      = document.getElementById('btn-preview') as HTMLButtonElement
-const btnRun          = document.getElementById('btn-run') as HTMLButtonElement
 const btnNewFile      = document.getElementById('btn-new-file') as HTMLButtonElement
 const btnRefresh      = document.getElementById('btn-refresh') as HTMLButtonElement
 const statusbarFile   = document.getElementById('statusbar-file') as HTMLSpanElement
@@ -345,15 +344,7 @@ btnEditor.addEventListener('click', () => showTab('editor'))
 btnPreview.addEventListener('click', () => showTab('preview'))
 showTab('editor')
 
-// ── Run button ────────────────────────────────────────────────────────────────
 
-btnRun.addEventListener('click', () => {
-  if (!workerReady) return
-  const code = editor.value
-  const filename = editor.filename
-  send({ type: 'run', code, filename })
-  terminalUI.write(`\x1b[35m▶ node ${filename}\x1b[0m\r\n`)
-})
 
 // ── New file ─────────────────────────────────────────────────────────────────
 
@@ -473,7 +464,6 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
 
   if (type === 'ready') {
     workerReady = true
-    btnRun.disabled = false
     setWorkerStatus('ready')
     setStatusMsg('Ready')
     _appendTestLog('[runtime] Worker ready.\n')

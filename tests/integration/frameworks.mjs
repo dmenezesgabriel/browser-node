@@ -32,8 +32,7 @@ async function runTest(page, name, packages, code, successStr, failStr, timeoutM
   }
   console.log('Install done, running code...')
 
-  await page.evaluate((c) => { document.getElementById('editor').value = c }, code)
-  await page.click('#btn-run')
+  await page.evaluate((c) => { window._sendToWorker({ type: 'run', code: c, filename: '/app/index.js' }) }, code)
 
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
