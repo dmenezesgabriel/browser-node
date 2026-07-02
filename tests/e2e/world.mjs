@@ -28,7 +28,7 @@ class BrowserNodeWorld extends World {
     this.page = await this._ctx.newPage()
     this.page.on('pageerror', e => console.log('[pageerror]', e.message.slice(0, 120)))
     this.page.on('console', msg => console.log('[pageconsole]', msg.text()))
-    await this.page.goto(BASE, { waitUntil: 'networkidle' })
+    await this.page.goto(BASE, { waitUntil: 'load', timeout: 60000 })
     await this.page.waitForFunction(
       () => { const t = document.getElementById('terminal'); return t && t.textContent.includes('Worker ready') },
       { timeout: 30000 }

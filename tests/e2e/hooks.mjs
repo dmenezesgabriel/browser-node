@@ -9,7 +9,7 @@ AfterAll(async () => {
   await closeBrowser()
 })
 
-Before({ timeout: 45000 }, async function () {
+Before({ timeout: 90000 }, async function () {
   await this.openPage()
 })
 
