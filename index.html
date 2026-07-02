@@ -32,8 +32,18 @@
 
       <div id="main">
         <div id="editor-area">
-          <div id="editor-tabs"></div>
-          <div id="editor-panel"></div>
+          <div id="editor-tabs-container">
+            <div id="editor-tabs"></div>
+            <div id="markdown-controls" class="hidden">
+              <button id="btn-md-edit" class="md-control-btn active" title="Show Editor Only">Editor</button>
+              <button id="btn-md-split" class="md-control-btn" title="Open Preview to Side">Split</button>
+              <button id="btn-md-preview" class="md-control-btn" title="Show Preview Only">Preview</button>
+            </div>
+          </div>
+          <div id="editor-workspace">
+            <div id="editor-panel"></div>
+            <div id="markdown-preview" class="hidden"></div>
+          </div>
           <div id="preview-panel">
             <div id="preview-bar">
               <span>Preview</span>
