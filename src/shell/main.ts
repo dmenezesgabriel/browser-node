@@ -1,6 +1,9 @@
 import { Editor } from './editor'
 import { TerminalUI } from './terminal-ui'
 import { FileExplorer } from './explorer'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import 'github-markdown-css/github-markdown.css'
 
 // ── Web Worker ────────────────────────────────────────────────────────────────
 
@@ -179,32 +182,161 @@ function _appendTestLog(text: string) {
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
 
-const sidebar         = document.getElementById('sidebar') as HTMLDivElement
-const editorPanel     = document.getElementById('editor-panel') as HTMLDivElement
-const previewPanel    = document.getElementById('preview-panel') as HTMLDivElement
-const previewFrame    = document.getElementById('preview') as HTMLIFrameElement
-const previewStatusEl = document.getElementById('preview-status') as HTMLSpanElement
-const termPanel       = document.getElementById('terminal-panel') as HTMLDivElement
-const termXterm       = document.getElementById('terminal-xterm') as HTMLDivElement
-const termTopbarCwd   = document.getElementById('terminal-topbar-cwd') as HTMLSpanElement
-const explorerEl      = document.getElementById('explorer') as HTMLDivElement
-const workerStatusEl  = document.getElementById('worker-status') as HTMLDivElement
-const btnSidebarTgl   = document.getElementById('btn-sidebar-toggle') as HTMLButtonElement
-const btnEditor       = document.getElementById('btn-editor') as HTMLButtonElement
-const btnPreview      = document.getElementById('btn-preview') as HTMLButtonElement
-const btnNewFile      = document.getElementById('btn-new-file') as HTMLButtonElement
-const btnRefresh      = document.getElementById('btn-refresh') as HTMLButtonElement
-const statusbarFile   = document.getElementById('statusbar-file') as HTMLSpanElement
-const statusbarMsg    = document.getElementById('statusbar-msg') as HTMLSpanElement
-const termDrag        = document.getElementById('terminal-drag') as HTMLDivElement
-const editorTabs      = document.getElementById('editor-tabs') as HTMLDivElement
-const sidebarDrag     = document.getElementById('sidebar-drag') as HTMLDivElement
+const sidebar          = document.getElementById('sidebar') as HTMLDivElement
+const editorWorkspace  = document.getElementById('editor-workspace') as HTMLDivElement
+const editorPanel      = document.getElementById('editor-panel') as HTMLDivElement
+const markdownPreview  = document.getElementById('markdown-preview') as HTMLDivElement
+const markdownControls = document.getElementById('markdown-controls') as HTMLDivElement
+const btnMdEdit        = document.getElementById('btn-md-edit') as HTMLButtonElement
+const btnMdSplit       = document.getElementById('btn-md-split') as HTMLButtonElement
+const btnMdPreview     = document.getElementById('btn-md-preview') as HTMLButtonElement
+const previewPanel     = document.getElementById('preview-panel') as HTMLDivElement
+const previewFrame     = document.getElementById('preview') as HTMLIFrameElement
+const previewStatusEl  = document.getElementById('preview-status') as HTMLSpanElement
+const termPanel        = document.getElementById('terminal-panel') as HTMLDivElement
+const termXterm        = document.getElementById('terminal-xterm') as HTMLDivElement
+const termTopbarCwd    = document.getElementById('terminal-topbar-cwd') as HTMLSpanElement
+const explorerEl       = document.getElementById('explorer') as HTMLDivElement
+const workerStatusEl   = document.getElementById('worker-status') as HTMLDivElement
+const btnSidebarTgl    = document.getElementById('btn-sidebar-toggle') as HTMLButtonElement
+const btnEditor        = document.getElementById('btn-editor') as HTMLButtonElement
+const btnPreview       = document.getElementById('btn-preview') as HTMLButtonElement
+const btnNewFile       = document.getElementById('btn-new-file') as HTMLButtonElement
+const btnRefresh       = document.getElementById('btn-refresh') as HTMLButtonElement
+const statusbarFile    = document.getElementById('statusbar-file') as HTMLSpanElement
+const statusbarMsg     = document.getElementById('statusbar-msg') as HTMLSpanElement
+const termDrag         = document.getElementById('terminal-drag') as HTMLDivElement
+const editorTabs       = document.getElementById('editor-tabs') as HTMLDivElement
+const sidebarDrag      = document.getElementById('sidebar-drag') as HTMLDivElement
+
+// ── Markdown Preview State & Sync Logic ──────────────────────────────────────────
+
+type MDViewMode = 'editor' | 'split' | 'preview'
+let mdViewMode: MDViewMode = 'editor'
+let isSyncingScroll = false
+let markdownUpdateTimeout: ReturnType<typeof setTimeout> | null = null
+
+function updateMarkdownPreview() {
+  if (!activeFile) return
+  const isMd = activeFile.endsWith('.md') || activeFile.endsWith('.markdown')
+  if (!isMd) return
+
+  const content = editor.value
+  try {
+    const rawHtml = marked.parse(content) as string
+    const cleanHtml = DOMPurify.sanitize(rawHtml)
+    markdownPreview.innerHTML = `<div class="markdown-body">${cleanHtml}</div>`
+  } catch (err) {
+    console.error('[MarkdownPreview] Rendering failed:', err)
+    markdownPreview.innerHTML = `<div class="markdown-body"><p style="color: var(--accent-red)">⚠ Preview rendering failed: ${err}</p></div>`
+  }
+}
+
+function queueMarkdownUpdate() {
+  if (markdownUpdateTimeout) clearTimeout(markdownUpdateTimeout)
+  markdownUpdateTimeout = setTimeout(() => {
+    updateMarkdownPreview()
+  }, 100)
+}
+
+function handleEditorScroll() {
+  if (mdViewMode !== 'split') return
+  if (isSyncingScroll) return
+  isSyncingScroll = true
+
+  const editorScroller = editorPanel.querySelector('.cm-scroller') as HTMLElement
+  if (editorScroller) {
+    const denom = editorScroller.scrollHeight - editorScroller.clientHeight
+    const pct = denom > 0 ? editorScroller.scrollTop / denom : 0
+    markdownPreview.scrollTop = pct * (markdownPreview.scrollHeight - markdownPreview.clientHeight)
+  }
+
+  requestAnimationFrame(() => {
+    isSyncingScroll = false
+  })
+}
+
+function handlePreviewScroll() {
+  if (mdViewMode !== 'split') return
+  if (isSyncingScroll) return
+  isSyncingScroll = true
+
+  const editorScroller = editorPanel.querySelector('.cm-scroller') as HTMLElement
+  if (editorScroller) {
+    const pct = markdownPreview.scrollTop / (markdownPreview.scrollHeight - markdownPreview.clientHeight)
+    const denom = editorScroller.scrollHeight - editorScroller.clientHeight
+    editorScroller.scrollTop = pct * denom
+  }
+
+  requestAnimationFrame(() => {
+    isSyncingScroll = false
+  })
+}
+
+function initScrollSync() {
+  const editorScroller = editorPanel.querySelector('.cm-scroller') as HTMLElement
+  if (!editorScroller) return
+
+  editorScroller.removeEventListener('scroll', handleEditorScroll)
+  markdownPreview.removeEventListener('scroll', handlePreviewScroll)
+
+  editorScroller.addEventListener('scroll', handleEditorScroll, { passive: true })
+  markdownPreview.addEventListener('scroll', handlePreviewScroll, { passive: true })
+}
+
+function setMDViewMode(mode: MDViewMode) {
+  mdViewMode = mode
+  
+  btnMdEdit.classList.toggle('active', mode === 'editor')
+  btnMdSplit.classList.toggle('active', mode === 'split')
+  btnMdPreview.classList.toggle('active', mode === 'preview')
+
+  if (mode === 'editor') {
+    editorPanel.classList.remove('hidden')
+    markdownPreview.classList.add('hidden')
+  } else if (mode === 'split') {
+    editorPanel.classList.remove('hidden')
+    markdownPreview.classList.remove('hidden')
+    updateMarkdownPreview()
+  } else if (mode === 'preview') {
+    editorPanel.classList.add('hidden')
+    markdownPreview.classList.remove('hidden')
+    updateMarkdownPreview()
+  }
+  
+  setTimeout(() => {
+    terminalUI.refit()
+    initScrollSync()
+  }, 50)
+}
+
+function checkMarkdownSupport() {
+  if (!activeFile) {
+    markdownControls.classList.add('hidden')
+    markdownPreview.classList.add('hidden')
+    editorPanel.classList.remove('hidden')
+    return
+  }
+
+  const isMd = activeFile.endsWith('.md') || activeFile.endsWith('.markdown')
+  if (isMd) {
+    markdownControls.classList.remove('hidden')
+    setMDViewMode(mdViewMode)
+  } else {
+    markdownControls.classList.add('hidden')
+    markdownPreview.classList.add('hidden')
+    editorPanel.classList.remove('hidden')
+  }
+}
 
 // ── UI components ─────────────────────────────────────────────────────────────
 
 const editor = new Editor(editorPanel)
 editor.onSave = (content, filename) => {
   send({ type: 'write-file', path: filename, content })
+  if (filename === activeFile && (mdViewMode === 'split' || mdViewMode === 'preview')) {
+    queueMarkdownUpdate()
+  }
 }
 const terminalUI = new TerminalUI(termXterm, (cmd) => {
   send({ type: 'terminal-cmd', cmdline: cmd })
@@ -214,6 +346,11 @@ const explorer = new FileExplorer(
   (path) => { send({ type: 'vfs-read', path }) },
   (path) => { send({ type: 'vfs-list', path }) },
 )
+
+btnMdEdit.addEventListener('click', () => setMDViewMode('editor'))
+btnMdSplit.addEventListener('click', () => setMDViewMode('split'))
+btnMdPreview.addEventListener('click', () => setMDViewMode('preview'))
+
 
 // ── Sidebar toggle ────────────────────────────────────────────────────────────
 
@@ -281,6 +418,7 @@ function updateTabsUI() {
         explorer.setActive(file)
         statusbarFile.textContent = file
         updateTabsUI()
+        checkMarkdownSupport()
       }
     })
     editorTabs.appendChild(tab)
@@ -298,12 +436,17 @@ function closeTab(file: string) {
       editor.switchFile(activeFile)
       explorer.setActive(activeFile)
       statusbarFile.textContent = activeFile
-      editorPanel.style.display = ''
+      editorWorkspace.style.display = ''
+      checkMarkdownSupport()
     } else {
       explorer.setActive('')
       statusbarFile.textContent = 'No file open'
-      editorPanel.style.display = 'none'
+      editorWorkspace.style.display = 'none'
+      checkMarkdownSupport()
     }
+  } else {
+    // If we closed a background tab, update UI and check support for current active file
+    checkMarkdownSupport()
   }
   updateTabsUI()
 }
@@ -312,11 +455,18 @@ function closeTab(file: string) {
 
 function showTab(tab: 'editor' | 'preview') {
   const isEditor = tab === 'editor'
-  editorPanel.classList.toggle('hidden', !isEditor)
+  editorWorkspace.classList.toggle('hidden', !isEditor)
   previewPanel.classList.toggle('visible', !isEditor)
   btnEditor.classList.toggle('active', isEditor)
   btnPreview.classList.toggle('active', !isEditor)
-  if (isEditor) terminalUI.refit()
+  
+  if (isEditor) {
+    checkMarkdownSupport()
+    terminalUI.refit()
+  } else {
+    markdownControls.classList.add('hidden')
+  }
+
   if (!isEditor && !_serverRunningPort) {
     if (!previewFrame.srcdoc || !previewFrame.srcdoc.includes('No server running')) {
       previewFrame.srcdoc = noServerHtml()
@@ -535,9 +685,10 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
       editor.openFile(p.content, p.path)
       explorer.setActive(p.path)
       statusbarFile.textContent = p.path
-      editorPanel.style.display = ''
+      editorWorkspace.style.display = ''
       updateTabsUI()
       showTab('editor')
+      checkMarkdownSupport()
     }
     return
   }
