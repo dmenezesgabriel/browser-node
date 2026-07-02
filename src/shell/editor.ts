@@ -3,6 +3,7 @@ import { javascript } from '@codemirror/lang-javascript'
 import { html } from '@codemirror/lang-html'
 import { css } from '@codemirror/lang-css'
 import { json } from '@codemirror/lang-json'
+import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorState, Compartment } from '@codemirror/state'
 import { LSPClient, languageServerExtensions } from '@codemirror/lsp-client'
@@ -15,6 +16,7 @@ function langFor(filename: string) {
   if (['html', 'htm'].includes(ext)) return html()
   if (ext === 'css') return css()
   if (ext === 'json') return json()
+  if (['md', 'markdown'].includes(ext)) return markdown()
   return javascript()
 }
 
