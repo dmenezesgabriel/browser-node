@@ -204,6 +204,9 @@ const sidebarDrag     = document.getElementById('sidebar-drag') as HTMLDivElemen
 // ── UI components ─────────────────────────────────────────────────────────────
 
 const editor = new Editor(editorPanel)
+editor.onSave = (content, filename) => {
+  send({ type: 'write-file', path: filename, content })
+}
 const terminalUI = new TerminalUI(termXterm, (cmd) => {
   send({ type: 'terminal-cmd', cmdline: cmd })
 })
@@ -475,6 +478,7 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
     toShell.close()
     terminalUI.setReady('/examples')
     explorer.refresh()
+    send({ type: 'vfs-get-files' })
     return
   }
 
@@ -515,6 +519,12 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
 
   if (type === 'vfs-changed') {
     explorer.refresh()
+    send({ type: 'vfs-get-files' })
+    return
+  }
+
+  if (type === 'vfs-get-files-result') {
+    editor.syncVfsFiles(p.files)
     return
   }
 

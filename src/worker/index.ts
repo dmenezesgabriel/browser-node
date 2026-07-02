@@ -55,7 +55,7 @@ self.addEventListener('error', (event) => {
 import { preloadShims, requireSync, resolveModule, clearModuleCache, registerFileOverride } from './loader'
 import { bindRequireSync } from './shims/index'
 import { install } from './npm'
-import { writeFileToVfs, dumpVfs, memfsInstance } from './vfs'
+import { writeFileToVfs, dumpVfs, memfsInstance, vol } from './vfs'
 import { getServer } from './shims/http'
 import { bindTerminalDeps, runCommand, getCwd } from './terminal-cmd'
 import { initExamples } from './examples'
@@ -344,6 +344,18 @@ self.addEventListener('message', async (e: MessageEvent) => {
   if (type === 'vfs-dump') {
     self.postMessage({ type: 'vfs-dump-result', tree: dumpVfs() })
     return
+  }
+
+  if (type === 'vfs-get-files') {
+    const rawJSON = vol.toJSON();
+    const result: Record<string, string> = {};
+    for (const [key, val] of Object.entries(rawJSON)) {
+      if (val !== null && !key.startsWith('/node_modules')) {
+        result[key] = val;
+      }
+    }
+    self.postMessage({ type: 'vfs-get-files-result', files: result });
+    return;
   }
 
   if (type === 'terminal-cmd') {
