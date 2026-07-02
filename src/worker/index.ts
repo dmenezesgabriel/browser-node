@@ -321,14 +321,16 @@ self.addEventListener('message', async (e: MessageEvent) => {
 
   if (type === 'npm-install') {
     const { packages } = payload as { packages: Record<string, string> }
+    let success = true
     try {
       await install(packages)
     } catch (e) {
       err(`\n[npm error] ${String(e)}\n`)
+      success = false
     }
     // After install, register file-path overrides for packages that require native binaries.
     _registerPostInstallOverrides()
-    self.postMessage({ type: 'npm-done' })
+    self.postMessage({ type: 'npm-done', success })
     return
   }
 

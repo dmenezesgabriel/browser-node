@@ -571,7 +571,8 @@ runtimeWorker.addEventListener('message', (e: MessageEvent) => {
   if (type === 'npm-done') {
     setWorkerStatus('ready')
     setStatusMsg('Ready')
-    if (_testLog.textContent?.includes('[npm error]') || _testLog.textContent?.includes('[error]')) {
+    const success = (p as any).success ?? true
+    if (!success) {
       _appendTestLog('Install failed\n')
     } else {
       _appendTestLog('Install complete\n')
