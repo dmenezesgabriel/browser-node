@@ -19,6 +19,84 @@ function isEsmSource(source: string): boolean {
   return false
 }
 
+function replaceDynamicImports(source: string): string {
+  let result = '';
+  let i = 0;
+  while (i < source.length) {
+    const idx = source.indexOf('import', i);
+    if (idx === -1) {
+      result += source.slice(i);
+      break;
+    }
+
+    const prevChar = idx > 0 ? source[idx - 1] : '';
+    // Ensure "import" is a separate word and not preceded by '.' or quotes
+    const isWord = (prevChar === '' || !/\w|\$|\./.test(prevChar));
+
+    // Find the opening parenthesis after "import" (ignoring whitespace)
+    let openParenIdx = idx + 6;
+    while (openParenIdx < source.length && /\s/.test(source[openParenIdx])) {
+      openParenIdx++;
+    }
+    const isValidImport = isWord && openParenIdx < source.length && source[openParenIdx] === '(';
+
+    if (!isValidImport) {
+      result += source.slice(i, idx + 6);
+      i = idx + 6;
+      continue;
+    }
+
+    result += source.slice(i, idx);
+
+    let parenCount = 1;
+    let j = openParenIdx + 1;
+    let inString = false;
+    let quoteChar = '';
+    while (j < source.length && parenCount > 0) {
+      const char = source[j];
+      const prev = source[j - 1] || '';
+
+      if (inString) {
+        if (char === quoteChar && prev !== '\\') {
+          inString = false;
+        }
+      } else if ((char === '"' || char === "'" || char === '`') && prev !== '\\') {
+        inString = true;
+        quoteChar = char;
+      } else if (char === '(') {
+        parenCount++;
+      } else if (char === ')') {
+        parenCount--;
+      }
+      j++;
+    }
+
+    if (parenCount === 0) {
+      const content = source.slice(openParenIdx + 1, j - 1);
+      
+      // Look ahead to check if this is a method definition (e.g. `import(data) {` or `import(data): void`)
+      let nextCharIdx = j;
+      while (nextCharIdx < source.length && /\s/.test(source[nextCharIdx])) {
+        nextCharIdx++;
+      }
+      const nextChar = nextCharIdx < source.length ? source[nextCharIdx] : '';
+      const isMethod = nextChar === '{' || nextChar === ':';
+
+      if (isMethod) {
+        result += 'import';
+        i = idx + 6;
+      } else {
+        result += `((__dynArg)=>Promise.resolve(require(__dynArg)))(${content})`;
+        i = j;
+      }
+    } else {
+      result += 'import';
+      i = idx + 6;
+    }
+  }
+  return result;
+}
+
 function esmToCjs(source: string, filePath: string): string {
   let result = source;
   let _ctr = 0;
@@ -53,20 +131,19 @@ function esmToCjs(source: string, filePath: string): string {
     return `${pre}var ${tmp} = require('${mod}'); var ${defaultName} = ((_m) => _m && _m.__esModule && _m.default !== undefined ? _m.default : _m)(${tmp}); var { ${mapped} } = ${tmp}; `
   }
 
-  result = result.replace(/(?<!['"`])\bimport\s+([$\w]+)\s*,\s*\{([^{}]*?)\}\s*from\s*(['"`])(.*?)\3/g, (_, dn, ns, __, mod) => _mkCombinedReplace('', dn, ns, mod));
-  result = result.replace(/(?<!['"`])\bimport\s*\{([^{}]*?)\}\s*from\s*(['"`])(.*?)\2/g, (_, names, __, mod) => _mkNamedReplace('', names, mod));
-  result = result.replace(/(?<!['"`])\bimport\s+([$\w]+)\s+from\s*(['"`])(.*?)\2/g, (_, name, __, mod) => _mkDefaultReplace('', name, mod));
-  result = result.replace(/(?<!['"`])\bimport\s*\*\s*as\s+([$\w]+)\s+from\s*(['"`])(.*?)\2/g, (_, name, __, mod) => `var ${name} = require('${mod}'); `);
-  result = result.replace(/(?<!['"`])\bimport\s*(['"`])(.*?)\1/g, (_, __, mod) => `require('${mod}'); `);
-  
-  result = result.replace(/(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\((?!\?)/g, '((__dynArg)=>Promise.resolve(require(__dynArg)))(');
+  result = result.replace(/(?<!['"`])\bimport\s+([$\w]+)\s*,\s*\{([^{}]*?)\}\s*from\s*(['"])(.*?)\3/g, (_, dn, ns, __, mod) => _mkCombinedReplace('', dn, ns, mod));
+  result = result.replace(/(?<!['"`])\bimport\s*\{([^{}]*?)\}\s*from\s*(['"])(.*?)\2/g, (_, names, __, mod) => _mkNamedReplace('', names, mod));
+  result = result.replace(/(?<!['"`])\bimport\s+([$\w]+)\s+from\s*(['"])(.*?)\2/g, (_, name, __, mod) => _mkDefaultReplace('', name, mod));
+  result = result.replace(/(?<!['"`])\bimport\s*\*\s*as\s+([$\w]+)\s+from\s*(['"])(.*?)\2/g, (_, name, __, mod) => `var ${name} = require('${mod}'); `);
+  result = result.replace(/(?<!['"`])\bimport\s*(['"])(.*?)\1/g, (_, __, mod) => `require('${mod}'); `);
+  result = replaceDynamicImports(result);
 
   result = result.replace(/(^|\n)(\s*)export\s+\*\s+from\s+(['"])([^'"]+)\3/g, (_, nl, ws, quote, moduleName) => {
     return `${nl}${ws}Object.assign(exports, require(${quote}${moduleName}${quote}));`
   });
-  result = result.replace(/(^|\n)(\s*)export\s+\*\s+as\s+([$\w]+)\s+from\s*(['"`])(.*?)\4/g, (_, nl, ws, name, __, mod) => `${nl}${ws}exports.${name} = require('${mod}'); `);
+  result = result.replace(/(^|\n)(\s*)export\s+\*\s+as\s+([$\w]+)\s+from\s*(['"])(.*?)\4/g, (_, nl, ws, name, __, mod) => `${nl}${ws}exports.${name} = require('${mod}'); `);
   
-  result = result.replace(/(^|\n)(\s*)export\s*\{([^{}]*?)\}\s*from\s*(['"`])(.*?)\4/g, (_, nl, ws, names, __, mod) => {
+  result = result.replace(/(^|\n)(\s*)export\s*\{([^{}]*?)\}\s*from\s*(['"])(.*?)\4/g, (_, nl, ws, names, __, mod) => {
     const parts = names.trim().split(',').filter(Boolean).map((n: string) => {
       const [src, dst] = n.trim().split(/\s+as\s+/)
       const s = src.trim(), d = (dst || src).trim()
@@ -359,7 +436,7 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
           .replace(/\btype\s+\w+\s*=\s*[^;\n]+;?/g, '')                          // type aliases
           .replace(/<[A-Za-z][A-Za-z0-9_, ]*>/g, '')                             // <T> generics (simple)
           .replace(/\s+as\s+[A-Za-z][A-Za-z0-9_<>, [\]|&.()]+/g, '')            // x as Type
-          .replace(/(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(([^)]+)\)(?!\s*\{)/g, 'Promise.resolve().then(()=>require($1))') // dynamic import fallback
+        source = replaceDynamicImports(source)
       }
     } catch (err) {
       self.postMessage({ type: 'stdout', text: `[loader] Transpilation error in ${filePath}: ${(err as Error).message}\n` })
@@ -405,9 +482,8 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
       source = esmToCjs(source, filePath)
     }
 
-    // Bulletproof fallback: If sucrase failed to transform dynamic imports (e.g. because it thought the file was already CJS)
     if (/(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(/.test(source)) {
-      source = source.replace(/(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(([^)]+)\)(?!\s*\{)/g, 'Promise.resolve().then(()=>require($1))')
+      source = replaceDynamicImports(source)
     }
   }
 
@@ -479,6 +555,17 @@ ${src}
 }
 
 export function requireSync(specifier: string, fromDir = '/app'): unknown {
+  if (specifier && typeof specifier === 'object') {
+    if ('href' in specifier) {
+      specifier = (specifier as any).href;
+    } else if ('toString' in specifier) {
+      specifier = (specifier as any).toString();
+    }
+  }
+  if (typeof specifier !== 'string') {
+    specifier = String(specifier);
+  }
+
   // Virtual module IDs (rolldown/rollup internal) — return empty object
   if (specifier.startsWith('\0')) return {}
 
