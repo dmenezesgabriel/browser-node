@@ -2,183 +2,12 @@ import { memfsInstance, existsInVfs, isFileInVfs } from './vfs'
 import { shimMap } from './shims/index'
 import { path } from './shims/path'
 import * as esbuildWasm from 'esbuild-wasm'
+import { transform as sucraseTransform } from 'sucrase'
 
 // Cache of resolved modules
 const moduleCache = new Map<string, { exports: unknown }>()
 
-// Detect whether a source file uses ESM syntax at the module level.
-function isEsmSource(source: string): boolean {
-  // Line-start import (with or without space — minified: import{X}from"mod")
-  if (/^import[\s{*"'`]/m.test(source)) return true
-  // Line-start export
-  if (/^export\s/m.test(source)) return true
-  // Mid-line static imports in minified files (after ;)
-  if (/;\s*import[\s{*"'`]/m.test(source)) return true
-  // import.meta
-  if (/\bimport\.meta\b/.test(source)) return true
-  return false
-}
 
-function replaceDynamicImports(source: string): string {
-  let result = '';
-  let i = 0;
-  while (i < source.length) {
-    const idx = source.indexOf('import', i);
-    if (idx === -1) {
-      result += source.slice(i);
-      break;
-    }
-
-    const prevChar = idx > 0 ? source[idx - 1] : '';
-    // Ensure "import" is a separate word and not preceded by '.' or quotes
-    const isWord = (prevChar === '' || !/\w|\$|\./.test(prevChar));
-
-    // Find the opening parenthesis after "import" (ignoring whitespace)
-    let openParenIdx = idx + 6;
-    while (openParenIdx < source.length && /\s/.test(source[openParenIdx])) {
-      openParenIdx++;
-    }
-    const isValidImport = isWord && openParenIdx < source.length && source[openParenIdx] === '(';
-
-    if (!isValidImport) {
-      result += source.slice(i, idx + 6);
-      i = idx + 6;
-      continue;
-    }
-
-    result += source.slice(i, idx);
-
-    let parenCount = 1;
-    let j = openParenIdx + 1;
-    let inString = false;
-    let quoteChar = '';
-    while (j < source.length && parenCount > 0) {
-      const char = source[j];
-      const prev = source[j - 1] || '';
-
-      if (inString) {
-        if (char === quoteChar && prev !== '\\') {
-          inString = false;
-        }
-      } else if ((char === '"' || char === "'" || char === '`') && prev !== '\\') {
-        inString = true;
-        quoteChar = char;
-      } else if (char === '(') {
-        parenCount++;
-      } else if (char === ')') {
-        parenCount--;
-      }
-      j++;
-    }
-
-    if (parenCount === 0) {
-      const content = source.slice(openParenIdx + 1, j - 1);
-      
-      // Look ahead to check if this is a method definition (e.g. `import(data) {` or `import(data): void`)
-      let nextCharIdx = j;
-      while (nextCharIdx < source.length && /\s/.test(source[nextCharIdx])) {
-        nextCharIdx++;
-      }
-      const nextChar = nextCharIdx < source.length ? source[nextCharIdx] : '';
-      const isMethod = nextChar === '{' || nextChar === ':';
-
-      if (isMethod) {
-        result += 'import';
-        i = idx + 6;
-      } else {
-        result += `((__dynArg)=>Promise.resolve(require(__dynArg)))(${content})`;
-        i = j;
-      }
-    } else {
-      result += 'import';
-      i = idx + 6;
-    }
-  }
-  return result;
-}
-
-function esmToCjs(source: string, filePath: string): string {
-  let result = source;
-  let _ctr = 0;
-  
-  // Replace import.meta.* references
-  result = result.replace(/\bimport\.meta\.url\b/g, `'file://${filePath}'`);
-  result = result.replace(/\bimport\.meta\.dirname\b/g, `'${path.dirname(filePath)}'`);
-  result = result.replace(/\bimport\.meta\.filename\b/g, `'${filePath}'`);
-  result = result.replace(/\bimport\.meta\b/g, `({ url: 'file://${filePath}', dirname: '${path.dirname(filePath)}', filename: '${filePath}', env: {} })`);
-
-  // Drop const/let redeclarations of runtime-injected CJS globals
-  result = result.replace(/\b(const|let)\s+(__dirname|__filename|require)\s*=/g, '$2 =');
-
-  // Strip import attributes (with { type: "json" } or assert { type: "json" })
-  result = result.replace(/(?<!['"`])\b(?:with|assert)\s*\{\s*type\s*:\s*['"`]json['"`]\s*\}/g, '');
-
-  const _mkNamedReplace = (pre: string, names: string, mod: string) => {
-    const mapped = names.trim().split(',').filter(Boolean).map((n: string) => {
-      const [src, dst] = n.trim().split(/\s+as\s+/)
-      return dst ? `${src.trim()}: ${dst.trim()}` : src.trim()
-    }).join(', ')
-    return `${pre}var { ${mapped} } = require('${mod}'); `
-  }
-  const _mkDefaultReplace = (pre: string, name: string, mod: string) =>
-    `${pre}var ${name} = ((_m) => _m && _m.__esModule && _m.default !== undefined ? _m.default : _m)(require('${mod}')); `
-  const _mkCombinedReplace = (pre: string, defaultName: string, names: string, mod: string) => {
-    const tmp = `_esm${_ctr++}`
-    const mapped = names.trim().split(',').filter(Boolean).map((n: string) => {
-      const [src, dst] = n.trim().split(/\s+as\s+/)
-      return dst ? `${src.trim()}: ${dst.trim()}` : src.trim()
-    }).join(', ')
-    return `${pre}var ${tmp} = require('${mod}'); var ${defaultName} = ((_m) => _m && _m.__esModule && _m.default !== undefined ? _m.default : _m)(${tmp}); var { ${mapped} } = ${tmp}; `
-  }
-
-  result = result.replace(/(?<!['"`])\bimport\s+([$\w]+)\s*,\s*\{([^{}]*?)\}\s*from\s*(['"])(.*?)\3/g, (_, dn, ns, __, mod) => _mkCombinedReplace('', dn, ns, mod));
-  result = result.replace(/(?<!['"`])\bimport\s*\{([^{}]*?)\}\s*from\s*(['"])(.*?)\2/g, (_, names, __, mod) => _mkNamedReplace('', names, mod));
-  result = result.replace(/(?<!['"`])\bimport\s+([$\w]+)\s+from\s*(['"])(.*?)\2/g, (_, name, __, mod) => _mkDefaultReplace('', name, mod));
-  result = result.replace(/(?<!['"`])\bimport\s*\*\s*as\s+([$\w]+)\s+from\s*(['"])(.*?)\2/g, (_, name, __, mod) => `var ${name} = require('${mod}'); `);
-  result = result.replace(/(?<!['"`])\bimport\s*(['"])(.*?)\1/g, (_, __, mod) => `require('${mod}'); `);
-  result = replaceDynamicImports(result);
-
-  result = result.replace(/(^|\n)(\s*)export\s+\*\s+from\s+(['"])([^'"]+)\3/g, (_, nl, ws, quote, moduleName) => {
-    return `${nl}${ws}Object.assign(exports, require(${quote}${moduleName}${quote}));`
-  });
-  result = result.replace(/(^|\n)(\s*)export\s+\*\s+as\s+([$\w]+)\s+from\s*(['"])(.*?)\4/g, (_, nl, ws, name, __, mod) => `${nl}${ws}exports.${name} = require('${mod}'); `);
-  
-  result = result.replace(/(^|\n)(\s*)export\s*\{([^{}]*?)\}\s*from\s*(['"])(.*?)\4/g, (_, nl, ws, names, __, mod) => {
-    const parts = names.trim().split(',').filter(Boolean).map((n: string) => {
-      const [src, dst] = n.trim().split(/\s+as\s+/)
-      const s = src.trim(), d = (dst || src).trim()
-      const dSafe = (d.startsWith('"') || d.startsWith("'")) ? `[${d}]` : `.${d}`
-      const sSafe = (s.startsWith('"') || s.startsWith("'")) ? `[${s}]` : `.${s}`
-      return `exports${dSafe} = require('${mod}')${sSafe}`
-    }).join('; ')
-    return parts ? `${nl}${ws}${parts}; ` : `${nl}${ws}`
-  });
-
-  result = result.replace(/(^|\n)(\s*)export\s*\{([^{}]*?)\}/g, (_, nl, ws, names) => {
-    const parts = names.trim().split(',').filter(Boolean).map((n: string) => {
-      const [src, dst] = n.trim().split(/\s+as\s+/)
-      const s = src.trim(), d = (dst || src).trim()
-      const dSafe = (d.startsWith('"') || d.startsWith("'")) ? `[${d}]` : `.${d}`
-      return `exports${dSafe} = ${s}`
-    }).join('; ')
-    return parts ? `${nl}${ws}${parts}; ` : `${nl}${ws}`
-  });
-
-  result = result.replace(/(^|\n)(\s*)export\s+default\s+(function|class|async\s+function)\s+([$\w]+)/g, (_, nl, ws, kw, name) => `${nl}${ws}var ${name} = exports.default = module.exports.default = ${kw} ${name}`);
-  result = result.replace(/(^|\n)(\s*)export\s+default\s+/g, (_, nl, ws) => `${nl}${ws}exports.default = module.exports.default = `);
-
-  const exportedFns: string[] = [];
-  result = result.replace(/(^|\n)(\s*)export\s+(function|class|async\s+function)\s+([$\w]+)(?=\s*(\(|{|extends|\n|$))/g, (_, nl, ws, kw, name) => { exportedFns.push(name); return `${nl}${ws}${kw} ${name}` });
-
-  const exportedVars: string[] = [];
-  result = result.replace(/(^|\n)(\s*)export\s+(const|let|var)\s+([$\w]+)(?=\s*(=|,|;|\n|$))/g, (_, nl, ws, kw, name) => { exportedVars.push(name); return `${nl}${ws}${kw} ${name}` });
-
-  const deferred = [...exportedFns, ...exportedVars].map(n => `Object.defineProperty(exports, '${n}', { get: () => ${n}, set: (v) => ${n} = v, enumerable: true })`).join('; ');
-
-  result = `'use strict'; Object.defineProperty(exports, '__esModule', { value: true });\n` + (deferred ? `${deferred};\n` : '') + result;
-
-  return result;
-}
 
 // Resolve the CJS entry point from a package.json exports field.
 // Handles nested patterns: string | { require: string | { default: string } | ... }
@@ -409,82 +238,84 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
 
   // Strip hashbang before parsing/execution
   if (source.startsWith('#!')) {
-    source = source.replace(/^#![^\n]*\n/, '\n')
+    source = source.replace(/^#![^\n]*\n?/, '')
   }
 
-  // Transpile TypeScript / JSX files if needed
-  const ext = path.extname(filePath).slice(1)
-  if (['ts', 'tsx', 'jsx', 'cts', 'mts'].includes(ext)) {
-    try {
-      let transpiled = false
-      try {
-        const ts = requireSync('typescript', dir) as any
-        if (ts && ts.transpileModule) {
-          // jsx: 2 = React (classic) → compiles <Foo /> to React.createElement calls (needed for JSX files)
-          // jsx: 4 = Preserve        → leaves JSX syntax intact (WRONG — causes parse errors)
-          // jsx: 1 = None            → strips JSX tags from .ts files
-          const isJsx = ext === 'jsx' || ext === 'tsx'
-          source = ts.transpileModule(source, { compilerOptions: { target: 99, jsx: isJsx ? 2 : 1 } }).outputText
-          transpiled = true
-        }
-      } catch {}
-      if (!transpiled) {
-        // Regex fallback: strip common TS-only syntax
-        source = source
-          .replace(/:\s*[A-Za-z][A-Za-z0-9_<>, [\]|&.()]*(?=\s*[=,);{])/g, '') // : TypeAnnotation
-          .replace(/\binterface\s+\w+[^{]*\{[^}]*\}/gs, '')                      // interface declarations
-          .replace(/\btype\s+\w+\s*=\s*[^;\n]+;?/g, '')                          // type aliases
-          .replace(/<[A-Za-z][A-Za-z0-9_, ]*>/g, '')                             // <T> generics (simple)
-          .replace(/\s+as\s+[A-Za-z][A-Za-z0-9_<>, [\]|&.()]+/g, '')            // x as Type
-        source = replaceDynamicImports(source)
-      }
-    } catch (err) {
-      self.postMessage({ type: 'stdout', text: `[loader] Transpilation error in ${filePath}: ${(err as Error).message}\n` })
-      throw err
-    }
-  }
-
-  // Transpile ESM to CJS if needed (handles Vite 8.x+ which ships ESM-only dist)
-  // Treat .mjs files as ESM regardless of content, and .js files in "type":"module" packages
   // Next.js _export helper prototype pollution and redefinition patch
-  const exportMatch = source.match(/function\s+_export[\s\S]{0,300}\}/);
   const regex = /function\s+_export\s*\(\s*target\s*,\s*all\s*\)\s*\{\s*for\s*\(\s*var\s+name\s+in\s+all\s*\)\s*Object\.defineProperty\s*\(\s*target\s*,\s*name\s*,\s*\{\s*enumerable\s*:\s*true\s*,\s*get\s*:\s*all\[name\]\s*\}\s*\)\s*;?\s*\}/g;
-  
-  if (filePath.endsWith('typegen.js')) {
-    self.postMessage({ type: 'stdout', text: `[DEBUG-LOADER] typegen.js export string: ${exportMatch ? JSON.stringify(exportMatch[0]) : 'not found'}\n` });
-    self.postMessage({ type: 'stdout', text: `[DEBUG-LOADER] regex matched: ${regex.test(source)}\n` });
-  }
-  
   source = source.replace(
     regex,
     'function _export(target, all) { for(var name in all) if (Object.prototype.hasOwnProperty.call(all, name)) { try { Object.defineProperty(target, name, { enumerable: true, configurable: true, get: all[name] }) } catch(e) {} } }'
   )
-  if (filePath.endsWith('typegen.js')) {
-    self.postMessage({ type: 'stdout', text: `[DEBUG-LOADER] typegen.js AFTER replacement: ${source.includes('try { Object.defineProperty')}\n` });
-  }
 
-  const originalSource = source
-  const isMjs = filePath.endsWith('.mjs')
-  const isModulePackage = !isMjs && filePath.endsWith('.js') && isInModulePackage(filePath)
+  const ext = path.extname(filePath).slice(1)
+  const isTs = ['ts', 'tsx', 'cts', 'mts'].includes(ext)
+  const isJsx = ['jsx', 'tsx'].includes(ext)
+
   if (!filePath.includes('/typescript/lib/')) {
-    // Strip hashbang early so it doesn't break Sucrase
-    source = source.replace(/^#![^\n]*\n?/, '')
+    let transpiled = false
+    if (isTs || isJsx) {
+      try {
+        const ts = requireSync('typescript', dir) as any
+        if (ts && ts.transpileModule && !ts._isBuiltinShim) {
+          const isJsxFile = ext === 'jsx' || ext === 'tsx'
+          source = ts.transpileModule(source, {
+            compilerOptions: {
+              target: 99, // ESNext
+              module: 99, // ESNext
+              jsx: isJsxFile ? 2 : 1,
+            }
+          }).outputText
+          transpiled = true
+        }
+      } catch {}
+    }
 
-    let definitelyCjs = /\bObject\.defineProperty\(exports,\s*['"]__esModule['"]/.test(source) || 
+    const isMjs = filePath.endsWith('.mjs')
+    const isModulePackage = !isMjs && filePath.endsWith('.js') && isInModulePackage(filePath)
+    let isEsm = isMjs || isModulePackage || 
+                /^import[\s{*"'`]/m.test(source) || 
+                /^export\s/m.test(source) || 
+                /;\s*import[\s{*"'`]/m.test(source) || 
+                /\bimport\.meta\b/.test(source) || 
+                /(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(/.test(source)
+
+    // CommonJS detection fallback to avoid ESM transformations on massive CJS bundles (like typescript.js)
+    const definitelyCjs = /\bObject\.defineProperty\(exports,\s*['"]__esModule['"]/.test(source) || 
                           (!isMjs && !isModulePackage && (/\bmodule\.exports\b/.test(source) || /\bexports\.\w+/.test(source)))
-    
-    const hasDynamicImport = /(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(/.test(source);
-    if (hasDynamicImport) {
-      definitelyCjs = false; // Force sucrase to handle dynamic imports properly without regex hacks
+    if (definitelyCjs && !/(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(/.test(source)) {
+      isEsm = false
     }
 
-    if (!definitelyCjs && (isMjs || isModulePackage || isEsmSource(source))) {
-      source = esmToCjs(source, filePath)
+    const transforms: string[] = []
+    if ((isTs || isJsx) && !transpiled) {
+      if (isTs) transforms.push('typescript')
+      if (isJsx) transforms.push('jsx')
+    }
+    if (isEsm || isTs || isJsx) {
+      transforms.push('imports')
     }
 
-    if (/(?<!\.)(?<!['"`])\b(?<!async\s)import\s*\(/.test(source)) {
-      source = replaceDynamicImports(source)
+    if (transforms.length > 0) {
+      try {
+        source = sucraseTransform(source, {
+          transforms: transforms as any,
+          filePath,
+          production: false
+        }).code
+      } catch (err) {
+        console.error(`[loader] Sucrase transpilation error in ${filePath}:`, err)
+        // Fall through with untransformed source; if it has ESM syntax the
+        // async wrapper will still work, and the SyntaxError retry below
+        // will attempt a basic regex fallback
+      }
     }
+
+    // Replace import.meta references safely by mapping to injected __import_meta
+    source = source.replace(/\bimport\.meta\b/g, '__import_meta');
+
+    // Drop const/let redeclarations of runtime-injected CJS globals
+    source = source.replace(/\b(const|let)\s+(__dirname|__filename|require)\s*=/g, '$2 =');
   }
 
   const requireFn = Object.assign(
@@ -500,13 +331,14 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
       extensions: { '.js': true, '.cjs': true, '.mjs': true, '.json': true },
     }
   )
+  
   const execSource = (src: string) => {
     if (filePath.endsWith('route-types-utils.js') || filePath.endsWith('typegen.js')) {
       console.log('--- REPLACED SOURCE ---')
       console.log(src.substring(0, 1000))
       console.log('--- END REPLACED SOURCE ---')
     }
-    const wrapped = `(function(require, module, exports, __dirname, __filename) {
+    const wrapped = `(async function(require, module, exports, __dirname, __filename) {
 const __filename_url = 'file://' + __filename;
 const __import_meta = { url: __filename_url, dirname: __dirname, filename: __filename, env: {} };
 ${src}
@@ -524,31 +356,37 @@ ${src}
     }
     
     try {
-      fn(requireFn, mod, mod.exports, dir, filePath)
+      const result = fn(requireFn, mod, mod.exports, dir, filePath)
+      if (result && typeof result.then === 'function') {
+        result.catch((err: Error) => {
+          console.error(`[loader] Async error in ${filePath}:`, err)
+          moduleCache.delete(filePath)
+        })
+      }
     } catch (err) {
       console.error(`[loader] Error executing module ${filePath}:`, err)
       throw err
     }
   }
+
   try {
     execSource(source)
   } catch (e: any) {
+    moduleCache.delete(filePath)
     if (e?.name === 'SyntaxError') {
+      // Retry with basic regex fallback for edge cases Sucrase can't handle
       try {
-        const CJS_RE = /exports\.|module\.exports/
-        mod.exports = {} // Reset exports before trying again
-        execSource(esmToCjs(originalSource, filePath))
-      } catch (err: any) {
-        if (err?.name === 'SyntaxError') {
-          self.postMessage({ type: 'stdout', text: `[loader] SyntaxError in: ${filePath}: ${err.message}\n` })
-          self.postMessage({ type: 'stdout', text: `[loader] Source excerpt:\n${source.substring(0, 1000)}\n` })
-        }
-        throw err;
-      }
-    } else {
-      moduleCache.delete(filePath)
-      throw e
+        const fallback = source
+          .replace(/^import[\s{*"'`].*?$/gm, '')
+          .replace(/^export\s/gm, '')
+          .replace(/\bimport\.meta\b/g, '__import_meta')
+        execSource(fallback)
+        return mod
+      } catch {}
+      self.postMessage({ type: 'stdout', text: `[loader] SyntaxError in: ${filePath}: ${e.message}\n` })
+      self.postMessage({ type: 'stdout', text: `[loader] Source excerpt:\n${source.substring(0, 1000)}\n` })
     }
+    throw e
   }
 
   return mod
