@@ -457,7 +457,7 @@ export default function App() {
   writeFileToVfs('/examples/vite-angular-ts/tsconfig.app.json', JSON.stringify({
     extends: "./tsconfig.json",
     compilerOptions: {},
-    files: ["src/main.ts"]
+    include: ["src/**/*.ts"]
   }, null, 2))
 
   writeFileToVfs('/examples/vite-angular-ts/package.json', JSON.stringify({
@@ -500,7 +500,7 @@ export default defineConfig({
   optimizeDeps: {
     disabled: true
   },
-  plugins: [angular()]
+  plugins: [angular({ tsconfig: '/examples/vite-angular-ts/tsconfig.app.json' })]
 })
 `)
 

@@ -1,4 +1,4 @@
-import { memfsInstance, existsInVfs, writeFileToVfs } from './vfs'
+import { memfsInstance, existsInVfs, isFileInVfs, writeFileToVfs } from './vfs'
 import { path as pathMod } from './shims/path'
 import { clearModuleCache } from './loader'
 import { process as proc } from './shims/process'
@@ -598,7 +598,7 @@ async function cmdNpx(args: string[]): Promise<number> {
  *
  * This is completely transparent to the developer — no project modifications needed.
  */
-function cjsToEsmPlugin() {
+function cjsToEsmPlugin(viteRoot: string) {
   return {
     name: 'browser-node-cjs-to-esm',
     enforce: 'pre' as const,
@@ -616,7 +616,16 @@ function cjsToEsmPlugin() {
 
       // Execute the CJS module server-side using our loader to discover its exports
       try {
-        const mod = _require(id, '/') as Record<string, unknown>
+        // Resolve the VFS path: Vite passes URL paths like /node_modules/rxjs/...
+        // but packages are installed at project-specific paths (e.g. /examples/.../node_modules/...)
+        let resolvedId = id
+        if (!isFileInVfs(resolvedId) && resolvedId.startsWith('/') && viteRoot) {
+          const candidate = pathMod.join(viteRoot, resolvedId.slice(1))
+          if (isFileInVfs(candidate)) {
+            resolvedId = candidate
+          }
+        }
+        const mod = _require(resolvedId, '/') as Record<string, unknown>
         if (!mod || typeof mod !== 'object') return null
 
         const keys = Object.keys(mod).filter(k =>
@@ -742,7 +751,7 @@ async function cmdVite(args: string[]): Promise<number> {
       server: { port },
       logLevel: 'info',
       optimizeDeps: { noDiscovery: true },
-      plugins: [cjsToEsmPlugin()],
+      plugins: [cjsToEsmPlugin(root)],
     })
     await server.listen()
     stdout(`\x1b[32m✓\x1b[0m Vite dev server running on \x1b[36mhttp://localhost:${port}\x1b[0m\n`)
