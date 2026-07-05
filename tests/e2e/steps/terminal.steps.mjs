@@ -4,6 +4,14 @@ When('I run terminal command {string}', { timeout: 15000 }, async function (cmd)
   this._lastExitCode = await this.runTerminalCmd(cmd)
 })
 
+When('I run terminal command {string} with timeout {int}s', { timeout: 300000 }, async function (cmd, seconds) {
+  this._lastExitCode = await this.runTerminalCmd(cmd, seconds * 1000)
+})
+
+When('I start a server with command {string} until I see {string}', { timeout: 300000 }, async function (cmd, waitFor) {
+  await this.runServerCmd(cmd, waitFor)
+})
+
 When('I create file {string} with content {string}', async function (path, content) {
   await this.createFile(path, content.replace(/\\n/g, '\n'))
 })

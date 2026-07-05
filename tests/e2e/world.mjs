@@ -50,11 +50,19 @@ class BrowserNodeWorld extends World {
   }
 
   async waitForTerminal(text, timeoutMs = 60000) {
-    await this.page.waitForFunction(
-      (t) => { const el = document.getElementById('terminal'); return el && el.textContent.includes(t) },
-      text,
-      { timeout: timeoutMs }
-    )
+    try {
+      await this.page.waitForFunction(
+        (t) => { const el = document.getElementById('terminal'); return el && el.textContent.includes(t) },
+        text,
+        { timeout: timeoutMs }
+      )
+    } catch (e) {
+      const term = await this.getTerminal()
+      console.log('[terminal-dump-start]')
+      console.log(term)
+      console.log('[terminal-dump-end]')
+      throw e
+    }
   }
 
   async waitForTerminalAny(texts, timeoutMs = 60000) {
@@ -73,6 +81,14 @@ class BrowserNodeWorld extends World {
   async createFile(path, content) {
     await this.sendToWorker({ type: 'write-file', path, content })
     await this.page.waitForTimeout(300)
+  }
+
+  async runServerCmd(cmd, waitForText, timeoutMs = 180000) {
+    this._cmdSeq++
+    await this.page.locator('#terminal-panel').click()
+    await this.page.keyboard.type(cmd)
+    await this.page.keyboard.press('Enter')
+    await this.waitForTerminal(waitForText, timeoutMs)
   }
 
   async runTerminalCmd(cmd, timeoutMs = 15000) {
