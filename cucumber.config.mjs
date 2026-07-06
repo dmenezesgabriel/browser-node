@@ -12,6 +12,7 @@ export default {
     'tests/e2e/features/vue.feature',
     'tests/e2e/features/vite.feature',
     'tests/e2e/features/terminal.feature',
+    'tests/e2e/features/tutorial.feature',
     'tests/e2e/features/angular-tutorial.feature',
     'tests/e2e/features/ui.feature',
   ],

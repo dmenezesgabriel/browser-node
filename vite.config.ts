@@ -29,7 +29,10 @@ export default defineConfig({
   build: { target: 'esnext' },
   worker: { format: 'es' },
   server: {
-    headers: {},
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     proxy: {
       // Proxy npm registry through Node so browser TLS cert issues don't block installs
       '/_npm': {

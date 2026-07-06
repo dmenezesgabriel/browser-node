@@ -37,12 +37,18 @@ When('I run the following code:', { timeout: 30000 }, async function (code) {
   await this.runCode(code)
 })
 
-Then('the terminal should contain {string}', { timeout: 120000 }, async function (text) {
-  await this.waitForTerminal(text, 120000)
-})
-
 Then('the terminal should show a runtime error', { timeout: 15000 }, async function () {
   await this.waitForTerminalAny(['[error]', 'Error:', 'failed:'], 15000)
+})
+
+Then('the terminal should contain {string}', { timeout: 180000 }, async function (text) {
+  try {
+    await this.waitForTerminal(text, 115000)
+  } catch (e) {
+    const term = await this.getTerminal()
+    console.log('[terminal-dump]', term)
+    throw e
+  }
 })
 
 Then('the terminal should NOT contain {string}', async function (text) {

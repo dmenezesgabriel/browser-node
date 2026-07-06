@@ -1,8 +1,15 @@
 import { memfsInstance, existsInVfs, isFileInVfs } from './vfs'
 import { shimMap } from './shims/index'
 import { path } from './shims/path'
-import * as esbuildWasm from 'esbuild-wasm'
-import { transform as sucraseTransform } from 'sucrase'
+
+let _sucraseTransform: ((code: string, opts: Record<string, unknown>) => { code: string }) | null = null
+export async function getSucraseTransform(): Promise<typeof _sucraseTransform> {
+  if (!_sucraseTransform) {
+    const m = await import('sucrase')
+    _sucraseTransform = m.transform as typeof _sucraseTransform
+  }
+  return _sucraseTransform
+}
 
 // Cache of resolved modules
 const moduleCache = new Map<string, { exports: unknown }>()
@@ -296,9 +303,9 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
       transforms.push('imports')
     }
 
-    if (transforms.length > 0) {
+    if (transforms.length > 0 && _sucraseTransform) {
       try {
-        source = sucraseTransform(source, {
+        source = _sucraseTransform(source, {
           transforms: transforms as any,
           filePath,
           production: false
@@ -338,6 +345,9 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
       console.log(src.substring(0, 1000))
       console.log('--- END REPLACED SOURCE ---')
     }
+    // Route dynamic import() calls through VFS-aware __import_fn (defined at global scope in index.ts)
+    // This catches await import('...') calls that would otherwise use the browser's native module loader.
+    src = src.replace(/\bimport\s*\(/g, '__import_fn(')
     const wrapped = `(async function(require, module, exports, __dirname, __filename) {
 const __filename_url = 'file://' + __filename;
 const __import_meta = { url: __filename_url, dirname: __dirname, filename: __filename, env: {} };
@@ -380,6 +390,8 @@ ${src}
           .replace(/^import[\s{*"'`].*?$/gm, '')
           .replace(/^export\s/gm, '')
           .replace(/\bimport\.meta\b/g, '__import_meta')
+          .replace(/exports\.'([^']+)'/g, "exports['$1']")
+          .replace(/exports\.\s+default\b/g, 'exports.default')
         execSource(fallback)
         return mod
       } catch {}
@@ -433,7 +445,10 @@ export function requireSync(specifier: string, fromDir = '/app'): unknown {
       return shimCache[resolved.slice(9)]
     }
 
-    return executeModule(resolved, fromDir).exports
+    self.postMessage({ type: 'stdout', text: `[trace] requireSync calling executeModule for ${specifier} (${resolved})\n` })
+    const _exports = executeModule(resolved, fromDir).exports
+    self.postMessage({ type: 'stdout', text: `[trace] requireSync: ${specifier} loaded, exports keys: ${Object.keys(_exports as object).slice(0, 5).join(', ')}\n` })
+    return _exports
   } catch (err: any) {
     self.postMessage({ type: 'stderr', text: `[requireSync error] ${specifier} from ${fromDir}: ${err.message}\n${err.stack}\n` })
     throw err

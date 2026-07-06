@@ -171,60 +171,23 @@ const _timers = {
   default: undefined as unknown,
 }
 _timers.default = _timers
+import {
+  exec as _cpExec,
+  execSync as _cpExecSync,
+  spawn as _cpSpawn,
+  spawnSync as _cpSpawnSync,
+  execFile as _cpExecFile,
+  fork as _cpFork,
+  ChildProcess as _CpChildProcess,
+} from './child-process'
 const _childProcess = {
-  exec: (_cmd: string, cb?: (err: Error | null, stdout?: string, stderr?: string) => void) => {
-    cb?.(null, '', '')
-    return { on: () => {}, kill: () => {}, stdin: null, stdout: null, stderr: null }
-  },
-  execFile: (_file: string, _args?: unknown, _opts?: unknown, cb?: (err: Error | null, stdout?: string, stderr?: string) => void) => {
-    const callback = typeof _opts === 'function' ? _opts as typeof cb : typeof _args === 'function' ? _args as typeof cb : cb
-    callback?.(null, '', '')
-    return { on: () => {}, kill: () => {}, stdin: null, stdout: null, stderr: null }
-  },
-  execSync: (_cmd: string) => Buffer.from(''),
-  spawn: (_cmd: string, _args?: string[], _opts?: unknown) => {
-    let handlers: Record<string, Function[]> = {}
-    const createStream = () => {
-      let streamHandlers: Record<string, Function[]> = {}
-      return {
-        on: (event: string, fn: Function) => {
-          if (!streamHandlers[event]) streamHandlers[event] = []
-          streamHandlers[event].push(fn)
-        },
-        emit: (event: string, ...args: any[]) => {
-          if (streamHandlers[event]) streamHandlers[event].forEach(fn => fn(...args))
-        },
-        pipe: () => {},
-        unpipe: () => {},
-        destroy: () => {}
-      }
-    }
-    const stdout = createStream()
-    const stderr = createStream()
-    const ee = { 
-      on: (event: string, fn: Function) => {
-        if (!handlers[event]) handlers[event] = []
-        handlers[event].push(fn)
-        return ee 
-      }, 
-      emit: (event: string, ...args: any[]) => {
-        if (handlers[event]) handlers[event].forEach(fn => fn(...args))
-        return false 
-      }, 
-      stdout,
-      stderr,
-      stdin: { write: () => {}, end: () => {} }, 
-      kill: () => {} 
-    }
-    setTimeout(() => {
-      stdout.emit('end')
-      stderr.emit('end')
-      ee.emit('close', 0)
-    }, 10)
-    return ee
-  },
-  spawnSync: (_cmd: string) => ({ status: 0, stdout: '', stderr: '', error: null }),
-  fork: () => { throw new Error('child_process.fork not supported in browser') },
+  exec: _cpExec,
+  execFile: _cpExecFile,
+  execSync: _cpExecSync,
+  spawn: _cpSpawn,
+  spawnSync: _cpSpawnSync,
+  fork: _cpFork,
+  ChildProcess: _CpChildProcess,
 }
 const _net = {
   createServer: () => ({ listen: () => {}, close: () => {}, on: () => {} }),
@@ -502,7 +465,9 @@ function processJsxChildren(childrenStr: string): string {
 // Vite 8 calls: rolldown/utils.transformSync(filename, code, { lang, sourcemap, ...options })
 // We must compile JSX→JS here, because Vite's vite:import-analysis plugin runs AFTER this
 // transform and cannot handle raw JSX syntax.
-import { transform as sucraseTransform } from 'sucrase'
+// Lazy-loaded to avoid blocking child worker startup (esbuild-wasm, sucrase are heavy).
+let _sucraseTransform: ((code: string, opts: Record<string, unknown>) => { code: string }) | null = null
+import('sucrase').then(m => { _sucraseTransform = m.transform as typeof _sucraseTransform }).catch(() => {})
 
 function _tsTransformSync(code: string, filename?: string, lang?: string): string {
   // Try to use TypeScript from the project's node_modules if available
@@ -533,17 +498,20 @@ function _tsTransformSync(code: string, filename?: string, lang?: string): strin
   
   if (transforms.length === 0) return code
 
-  try {
-    const result = sucraseTransform(code, {
-      transforms: transforms as any,
-      filePath: filename || 'file.jsx',
-      production: false
-    })
-    return result.code
-  } catch (e) {
-    console.error(`[sucrase] Failed to transform ${filename}:`, e)
-    return code
+  if (_sucraseTransform) {
+    try {
+      const result = _sucraseTransform(code, {
+        transforms: transforms as any,
+        filePath: filename || 'file.jsx',
+        production: false
+      })
+      return result.code
+    } catch (e) {
+      console.error(`[sucrase] Failed to transform ${filename}:`, e)
+      return code
+    }
   }
+  return code
 }
 
 
@@ -738,17 +706,7 @@ _sirvFn.default = _sirvFn
 _sirvFn.sirv = _sirvFn
 const _sirvShim = _sirvFn
 
-// Late-bound reference to requireSync (set by worker/index.ts to avoid circular deps)
-let _requireSync: (spec: string, fromDir: string) => unknown = () => undefined
-let _resolveModule: (spec: string, fromDir: string) => string | null = () => null
-
-export function bindRequireSync(
-  fn: (spec: string, fromDir: string) => unknown,
-  resolveFn: (spec: string, fromDir: string) => string | null
-) {
-  _requireSync = fn
-  _resolveModule = resolveFn
-}
+export { _requireSync, _resolveModule, bindRequireSync } from './sync-registry'
 
 const _vmScript = class Script {
   private _code: string
@@ -842,7 +800,16 @@ const _moduleShim = {
       : typeof base === 'string'
       ? base.replace(/\/[^/]+$/, '')
       : '/app'
-    const req = (spec: string) => _requireSync(spec, fromDir)
+    const req = (spec: string) => {
+      try {
+        return _requireSync(spec, fromDir)
+      } catch (e) {
+        if (typeof globalThis._requireSync === 'function') {
+          return (globalThis as any)._requireSync(spec, fromDir)
+        }
+        throw e
+      }
+    }
     req.resolve = (spec: string) => {
       const resolved = _resolveModule(spec, fromDir)
       if (!resolved) throw new Error(`Cannot find module '${spec}'`)
@@ -859,7 +826,16 @@ const _moduleShim = {
   isBuiltin: (id: string) => _builtinModules.includes(id.replace(/^node:/, '')),
   // Node.js Module.prototype.require — Next.js monkey-patches this in require-hook.js
   prototype: {
-    require: (spec: string) => _requireSync(spec, '/app'),
+    require: (spec: string) => {
+      try {
+        return _requireSync(spec, '/app')
+      } catch (e) {
+        if (typeof globalThis._requireSync === 'function') {
+          return (globalThis as any)._requireSync(spec, '/app')
+        }
+        throw e
+      }
+    },
   },
   // Next.js reads and patches Module._resolveFilename
   _resolveFilename: (request: string) => {

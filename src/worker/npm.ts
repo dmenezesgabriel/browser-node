@@ -143,7 +143,7 @@ export async function install(
 
   while (queue.length) {
     const { name, range, dest } = queue.shift()!
-    if (SKIP_PKGS.has(name) || (name.startsWith('@next/swc-') && !name.includes('wasm')) || name.startsWith('@swc/core-') || name.startsWith('@vercel/nxt-') || (name.startsWith('@oxc-parser/binding-') && !name.includes('wasm'))) {
+    if (SKIP_PKGS.has(name) || (name.startsWith('@next/swc-') && !name.includes('wasm')) || name.startsWith('@swc/core-') || name.startsWith('@vercel/nxt-') || name.startsWith('@rolldown/binding-') || (name.startsWith('@oxc-parser/binding-') && !name.includes('wasm'))) {
       log(`npm  skipping   ${name} (native/shimmed)`)
       continue
     }

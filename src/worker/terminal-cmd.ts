@@ -1,6 +1,5 @@
 import { memfsInstance, existsInVfs, isFileInVfs, writeFileToVfs } from './vfs'
 import { path as pathMod } from './shims/path'
-import { clearModuleCache } from './loader'
 import { process as proc } from './shims/process'
 
 type RequireFn = (id: string, fromDir: string) => unknown
@@ -8,6 +7,14 @@ type InstallFn  = (packages: Record<string, string>, rootNmDir?: string) => Prom
 
 let _require: RequireFn | null = null
 let _install: InstallFn | null = null
+let _clearModuleCache: (() => void) | null = null
+async function clearModuleCacheLazy(): Promise<void> {
+  if (!_clearModuleCache) {
+    const loader = await import('./loader')
+    _clearModuleCache = loader.clearModuleCache
+  }
+  _clearModuleCache()
+}
 
 export function bindTerminalDeps(req: RequireFn, inst: InstallFn) {
   _require = req
@@ -16,9 +23,12 @@ export function bindTerminalDeps(req: RequireFn, inst: InstallFn) {
 
 let _cwd = '/examples'
 export function getCwd() { return _cwd }
+export function setCwd(dir: string) { _cwd = dir }
 
 export let stdout = (text: string) => { self.postMessage({ type: 'stdout', text }) }
 export let stderr = (text: string) => { self.postMessage({ type: 'stderr', text }) }
+export function setStdout(fn: typeof stdout) { stdout = fn }
+export function setStderr(fn: typeof stderr) { stderr = fn }
 function notifyVfsChanged() { self.postMessage({ type: 'vfs-changed' }) }
 
 // ── Path helpers ────────────────────────────────────────────────────────────
@@ -124,7 +134,124 @@ function splitOnAnd(line: string): string[] {
   return parts.map(p => p.trim()).filter(Boolean)
 }
 
-// ── Entry point ─────────────────────────────────────────────────────────────
+// ── Synchronous command dispatch (no async) ──────────────────────────────────
+
+function dispatchSyncCommand(cmd: string, args: string[]): number {
+  switch (cmd) {
+    case 'ls':    case 'dir':  return cmdLs(args)
+    case 'cd':                 return cmdCd(args)
+    case 'pwd':                return cmdPwd()
+    case 'mkdir':              return cmdMkdir(args)
+    case 'rm':                 return cmdRm(args)
+    case 'mv':                 return cmdMv(args)
+    case 'cp':                 return cmdCp(args)
+    case 'touch':              return cmdTouch(args)
+    case 'cat':                return cmdCat(args)
+    case 'echo':               return cmdEcho(args)
+    case 'which':              return cmdWhich(args)
+    case 'env':                return cmdEnv()
+    case 'export':             return cmdExport(args)
+    case 'find':               return cmdFind(args)
+    case 'head':               return cmdHead(args)
+    case 'tail':               return cmdTail(args)
+    case 'grep':               return cmdGrep(args)
+    case 'clear': case 'cls':  return -1
+    case 'help': case '?':     return cmdHelp()
+    case 'exit': case 'quit':  return 0
+    case 'node':
+    case 'npm':
+    case 'npx':
+    case 'vite':
+      throw new Error(`${cmd} requires async execution; use exec() instead of execSync()`)
+    default: {
+      const binPath = resolveBin(cmd, _cwd)
+      if (binPath) {
+        throw new Error(`${cmd} requires async execution; use exec() instead of execSync()`)
+      }
+      stderr(`\x1b[31m${cmd}: command not found\x1b[0m\n`)
+      return 127
+    }
+  }
+}
+
+// ── Synchronous command runner (captures stdout/stderr, no Worker) ───────────
+
+export function runCommandSync(cmdline: string, cwd?: string): { stdout: string; stderr: string; code: number } {
+  const prevCwd = _cwd
+  if (cwd !== undefined) _cwd = cwd
+  const andParts = splitOnAnd(cmdline.trim())
+  if (andParts.length > 1) {
+    for (const part of andParts) {
+      const result = runCommandSync(part)
+      if (result.code !== 0) return result
+    }
+    return { stdout: '', stderr: '', code: 0 }
+  }
+
+  const tokens = tokenize(cmdline.trim())
+  if (!tokens.length) return { stdout: '', stderr: '', code: 0 }
+
+  let redirectFile: string | null = null
+  let append = false
+  const cleanTokens: string[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] === '>' || tokens[i] === '>>') {
+      append = tokens[i] === '>>'
+      redirectFile = tokens[i + 1]
+      break
+    }
+    cleanTokens.push(tokens[i])
+  }
+  if (!cleanTokens.length) return { stdout: '', stderr: '', code: 0 }
+  const [cmd, ...args] = cleanTokens
+
+  const origStdout = stdout
+  const origStderr = stderr
+
+  const stdoutBuf: string[] = []
+  const stderrBuf: string[] = []
+  let redirectBuf = ''
+
+  if (redirectFile) {
+    stdout = (text: string) => { redirectBuf += text }
+  } else {
+    stdout = (text: string) => { stdoutBuf.push(text) }
+  }
+  stderr = (text: string) => { stderrBuf.push(text) }
+
+  let code = 0
+  try {
+    code = dispatchSyncCommand(cmd, args)
+  } catch (e) {
+    stderr(`\x1b[31m${cmd}: ${(e as Error).message}\x1b[0m\n`)
+    code = 1
+  }
+
+  if (redirectFile) {
+    stdout = origStdout
+    try {
+      const fullPath = resolve(redirectFile)
+      if (append && existsInVfs(fullPath)) {
+        const orig = memfsInstance.readFileSync(fullPath, 'utf8') as string
+        writeFileToVfs(fullPath, orig + redirectBuf)
+      } else {
+        writeFileToVfs(fullPath, redirectBuf)
+      }
+      notifyVfsChanged()
+    } catch (e) {
+      stderr(`\x1b[31m${cmd}: Failed to write to ${redirectFile}\x1b[0m\n`)
+      code = 1
+    }
+  }
+
+  stdout = origStdout
+  stderr = origStderr
+  if (cwd !== undefined) _cwd = prevCwd
+
+  return { stdout: stdoutBuf.join(''), stderr: stderrBuf.join(''), code }
+}
+
+// ── Entry point (async, used by terminal UI) ─────────────────────────────────
 
 export async function runCommand(cmdline: string): Promise<number> {
   const andParts = splitOnAnd(cmdline.trim())
@@ -138,11 +265,11 @@ export async function runCommand(cmdline: string): Promise<number> {
 
   const tokens = tokenize(cmdline.trim())
   if (!tokens.length) return 0
-  
+
   let redirectFile: string | null = null
   let append = false
   const cleanTokens: string[] = []
-  
+
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i] === '>' || tokens[i] === '>>') {
       append = tokens[i] === '>>'
@@ -151,10 +278,10 @@ export async function runCommand(cmdline: string): Promise<number> {
     }
     cleanTokens.push(tokens[i])
   }
-  
+
   if (!cleanTokens.length) return 0
   const [cmd, ...args] = cleanTokens
-  
+
   const origStdout = stdout
   let outBuffer = ''
   if (redirectFile) {
@@ -202,7 +329,7 @@ export async function runCommand(cmdline: string): Promise<number> {
     stderr(`\x1b[31m${cmd}: ${(e as Error).message}\x1b[0m\n`)
     code = 1
   }
-  
+
   if (redirectFile) {
     stdout = origStdout
     try {
@@ -440,7 +567,7 @@ async function cmdNode(args: string[]): Promise<number> {
     const code = args.slice(1).join(' ')
     if (!code) { stderr('node: -e requires an expression\n'); return 1 }
     if (!_require) { stderr('node: runtime not ready\n'); return 1 }
-    clearModuleCache()
+    await clearModuleCacheLazy()
     const tmpPath = _cwd + '/_eval_' + Date.now() + '.js'
     writeFileToVfs(tmpPath, code)
     try { _require(tmpPath, _cwd); return 0 }
@@ -453,7 +580,7 @@ async function cmdNode(args: string[]): Promise<number> {
   try {
     if (!existsInVfs(file)) { stderr(`node: ${args[0]}: No such file or directory\n`); return 1 }
     if (!_require) { stderr('node: runtime not ready\n'); return 1 }
-    clearModuleCache()
+    await clearModuleCacheLazy()
     const fromDir = normalize(file.split('/').slice(0, -1).join('/') || '/')
     _require(file, fromDir)
     return 0

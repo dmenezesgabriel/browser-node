@@ -52,7 +52,7 @@ self.addEventListener('error', (event) => {
   if (event.error?.stack) console.error(event.error.stack)
 })
 
-import { preloadShims, requireSync, resolveModule, clearModuleCache, registerFileOverride } from './loader'
+import { preloadShims, requireSync, resolveModule, clearModuleCache, registerFileOverride, getSucraseTransform } from './loader'
 import { bindRequireSync } from './shims/index'
 import { install } from './npm'
 import { writeFileToVfs, dumpVfs, memfsInstance, vol } from './vfs'
@@ -64,7 +64,7 @@ import { initExamples } from './examples'
 const OriginalFunction = globalThis.Function
 function CustomFunction(this: any, ...args: string[]) {
   const body = args[args.length - 1]
-  if (typeof body === 'string' && (body.includes('return import(') || body.includes('return import(modulePath)'))) {
+  if (typeof body === 'string' && /\bimport\s*\(/.test(body)) {
     return function(modulePath: string) {
       try {
         const cwd = getCwd ? getCwd() : '/app'
@@ -87,6 +87,13 @@ globalThis.Function = CustomFunction as any
 // Wire up createRequire in the node:module shim (can't import requireSync there — circular)
 bindRequireSync(requireSync, resolveModule)
 
+// Global dynamic import handler — routes through VFS-aware requireSync.
+// Used by source-level import() → __import_fn() replacement in loader.ts.
+globalThis.__import_fn = (specifier: string) => {
+  const cwd = getCwd ? getCwd() : '/app'
+  return Promise.resolve(requireSync(specifier, cwd))
+}
+
 function log(text: string) { self.postMessage({ type: 'stdout', text }) }
 function err(text: string) { self.postMessage({ type: 'stderr', text }) }
 
@@ -102,6 +109,7 @@ async function init() {
   } catch (e) {
     err(`[runtime] esbuild init failed: ${(e as Error).message}\n`)
   }
+  await getSucraseTransform()
   log('[runtime] Ready.\n')
   self.postMessage({ type: 'ready' })
 }

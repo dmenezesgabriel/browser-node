@@ -4,9 +4,9 @@
  * Requires the Vite dev server running on port 5179 and Playwright installed.
  * Run: node tests/integration/frameworks.mjs
  */
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs'
+import { chromium } from '/home/gabriel-menezes/.nvm/versions/node/v24.15.0/lib/node_modules/@playwright/cli/node_modules/playwright/index.mjs'
 
-const BASE = 'http://localhost:5179'
+const BASE = 'http://localhost:5173'
 
 async function runTest(page, name, packages, code, successStr, failStr, timeoutMs = 300000) {
   console.log(`\n${'='.repeat(50)}\nTesting: ${name}\n${'='.repeat(50)}`)

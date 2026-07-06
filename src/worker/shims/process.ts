@@ -8,6 +8,7 @@ function _getListeners(event: string): Listener[] {
 }
 
 const processShim = {
+  _sendPort: null as MessagePort | null,
   env: {
     NODE_ENV: 'development',
     NODE_NO_WARNINGS: '1',
@@ -25,8 +26,12 @@ const processShim = {
   cwd: () => '/app',
   chdir: (_dir: string) => {},
   nextTick: (fn: (...args: unknown[]) => void, ...args: unknown[]) => {
-    console.log('[shim-process] nextTick called!')
-    Promise.resolve().then(() => fn(...args))
+    // Use a macrotask (MessageChannel) instead of a microtask (Promise.resolve().then())
+    // to avoid starving the event loop with recursive nextTick calls.
+    // Microtasks would prevent timer callbacks and other macrotasks from ever running.
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => fn(...args)
+    channel.port2.postMessage(null)
   },
   hrtime: Object.assign(
     (time?: [number, number]): [number, number] => {
@@ -114,6 +119,24 @@ const processShim = {
     arrayBuffers: 5_000_000,
   }),
   uptime: () => performance.now() / 1000,
+  send(message: unknown, _sendHandle?: unknown, _options?: unknown, callback?: (error: Error | null) => void): boolean {
+    if (!processShim._sendPort) return false
+    try {
+      processShim._sendPort.postMessage({ type: 'message', data: message })
+      callback?.(null)
+      return true
+    } catch (e) {
+      callback?.(e as Error)
+      return false
+    }
+  },
+  disconnect(): void {
+    if (processShim._sendPort) {
+      processShim._sendPort.postMessage({ type: 'disconnect' })
+      processShim._sendPort.close()
+      processShim._sendPort = null
+    }
+  },
 }
 
 ;(globalThis as any).process = processShim;

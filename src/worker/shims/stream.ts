@@ -10,6 +10,8 @@ export function Readable(this: any) {
   this.readableHighWaterMark = 16384
   this.readableObjectMode = false
   this.readableEncoding = null
+  // Store reference to _read for manual triggering
+  this._readFn = null
 }
 Object.setPrototypeOf(Readable.prototype, EventEmitter.prototype)
 Object.setPrototypeOf(Readable, EventEmitter)
