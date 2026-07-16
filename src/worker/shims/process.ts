@@ -1,5 +1,8 @@
 type Listener = (...args: unknown[]) => void
 
+let _currentCwd = '/app'
+export function setCwdForProcess(dir: string) { _currentCwd = dir }
+
 const _listeners = new Map<string, Listener[]>()
 
 function _getListeners(event: string): Listener[] {
@@ -23,8 +26,8 @@ const processShim = {
   ppid: 0,
   exitCode: 0,
   features: {},
-  cwd: () => '/app',
-  chdir: (_dir: string) => {},
+  cwd: () => _currentCwd,
+  chdir: (dir: string) => { _currentCwd = dir },
   nextTick: (fn: (...args: unknown[]) => void, ...args: unknown[]) => {
     // Use a macrotask (MessageChannel) instead of a microtask (Promise.resolve().then())
     // to avoid starving the event loop with recursive nextTick calls.

@@ -128,22 +128,24 @@ export async function install(
 
   // Platform-specific native modules and packages shimmed at runtime — skip downloading.
   // This prevents wasted bandwidth and avoids trying to execute native .node binaries.
-  const SKIP_PKGS = new Set([
-    'fsevents',                            // macOS-only native (optional dep of chokidar)
-    '@esbuild/linux-x64', '@esbuild/linux-arm64',
-    '@esbuild/linux-x64-gnu', '@esbuild/linux-arm64-gnu',
-    '@esbuild/darwin-x64', '@esbuild/darwin-arm64',
-    '@esbuild/win32-x64',
-    '@rollup/rollup-linux-x64-gnu', '@rollup/rollup-linux-x64-musl',
-    '@rollup/rollup-linux-arm64-gnu', '@rollup/rollup-linux-arm64-musl',
-    '@rollup/rollup-darwin-x64', '@rollup/rollup-darwin-arm64',
-    '@rollup/rollup-win32-x64-msvc', '@rollup/rollup-wasm-node',
-    'lightningcss', 'lightningcss-linux-x64-gnu',
-  ])
+  // Prefix-based matching catches ALL platform variants without listing each one.
+  function isNativePlatformPackage(name: string): boolean {
+    if (name === 'fsevents') return true
+    if (name.startsWith('@esbuild/')) return true
+    if (name.startsWith('@rollup/rollup-')) return true
+    if (name.startsWith('@next/swc-') && !name.includes('wasm')) return true
+    if (name.startsWith('@swc/core-')) return true
+    if (name.startsWith('@vercel/nxt-')) return true
+    if (name.startsWith('@rolldown/binding-') && !name.includes('wasm')) return true
+    if (name.startsWith('@oxc-parser/binding-') && !name.includes('wasm')) return true
+    if (name.startsWith('@parcel/watcher-')) return true
+    if (name.startsWith('lightningcss') && !name.includes('wasm')) return true
+    return false
+  }
 
   while (queue.length) {
     const { name, range, dest } = queue.shift()!
-    if (SKIP_PKGS.has(name) || (name.startsWith('@next/swc-') && !name.includes('wasm')) || name.startsWith('@swc/core-') || name.startsWith('@vercel/nxt-') || name.startsWith('@rolldown/binding-') || (name.startsWith('@oxc-parser/binding-') && !name.includes('wasm'))) {
+    if (isNativePlatformPackage(name)) {
       log(`npm  skipping   ${name} (native/shimmed)`)
       continue
     }

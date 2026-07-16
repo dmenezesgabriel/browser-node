@@ -486,7 +486,7 @@ function noServerHtml(): string {
 </style></head>
 <body><div class="box">
   <h2>No server running</h2>
-  <p>Start one in the terminal, e.g.<br><kbd>cd /examples/express && npm install && node index.js</kbd></p>
+  <p>Start one in the terminal, e.g.<br><kbd>cd /examples/express-todo && npm install && node index.js</kbd></p>
 </div></body></html>`
 }
 

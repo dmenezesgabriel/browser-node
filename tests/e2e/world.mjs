@@ -11,8 +11,13 @@ export async function launchBrowser() {
   browser = await chromium.launch({ args: ['--no-sandbox'] })
 }
 export async function closeBrowser() {
-  await browser?.close()
+  await browser?.close().catch(() => {})
   browser = null
+}
+async function ensureBrowser() {
+  if (browser && browser.isConnected()) return
+  await closeBrowser()
+  await launchBrowser()
 }
 
 class BrowserNodeWorld extends World {
@@ -24,6 +29,7 @@ class BrowserNodeWorld extends World {
   }
 
   async openPage() {
+    await ensureBrowser()
     this._ctx = await browser.newContext()
     this.page = await this._ctx.newPage()
     this.page.on('pageerror', e => console.log('[pageerror]', e.message.slice(0, 120)))
@@ -36,7 +42,7 @@ class BrowserNodeWorld extends World {
   }
 
   async closePage() {
-    await this._ctx?.close()
+    try { await this._ctx?.close() } catch {}
     this.page = null
     this._ctx = null
   }

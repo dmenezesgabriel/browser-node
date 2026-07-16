@@ -290,6 +290,20 @@ const _rolldownParseAst = {
 }
 _rolldownParseAst.default = _rolldownParseAst
 
+// Rollup native binary stub — returns a minimal AST parser so rollup/parseAst
+// can be required without loading native .node binaries.
+// The real @rollup/rollup-{platform} packages contain native addons that cannot
+// run in a browser worker; we substitute with acorn-based parsing.
+const _rollupNativeStub = {
+  parse: (code: string) => acorn.parse(code, { ecmaVersion: 'latest', sourceType: 'module' }),
+  parseAsync: async (code: string) => acorn.parse(code, { ecmaVersion: 'latest', sourceType: 'module' }),
+  xxhashBase64Url: (s: string) => btoa(s),
+  xxhashBase36: (s: string) => s.length.toString(36),
+  xxhashBase16: (s: string) => s.length.toString(16),
+  default: undefined as unknown,
+}
+_rollupNativeStub.default = _rollupNativeStub
+
 class _TsconfigCache { constructor() {} }
 class _Visitor { constructor() {} }
 
@@ -625,37 +639,107 @@ const _rolldownExperimental = {
 }
 _rolldownExperimental.default = _rolldownExperimental
 
+// ── rolldown passthrough — CJS deps are served as-is; Vite wraps them at serve time ──
+
 // rollup/rolldown stub — allows Vite to import them at startup without crashing.
 // Actual bundling (vite build) will throw; the dev server does not use rollup/rolldown.
-const _notSupportedBundle = () => { console.trace('_notSupportedBundle called'); return Promise.reject(new Error("bundler is not supported in browser; use vite dev server only")) }
+const _notSupportedBundle = () => { return Promise.reject(new Error("bundler is not supported in browser; use vite dev server only")) }
+
+function _makeRolldownOutput(chunks: { fileName: string; code: string; isEntry: boolean; imports?: string[]; moduleIds?: string[] }[]) {
+  return {
+    output: chunks.map(c => ({
+      type: 'chunk' as const,
+      isEntry: c.isEntry,
+      fileName: c.fileName,
+      code: c.code,
+      imports: c.imports ?? [],
+      dynamicImports: [] as string[],
+      exports: [] as string[],
+      isDynamicEntry: false,
+      isImplicitEntry: false,
+      map: null,
+      moduleIds: c.moduleIds ?? [c.fileName],
+      modules: {} as Record<string, { renderedLength: number; removedExports: string[]; mutated: boolean }>
+    }))
+  }
+}
+
 const _rollupBundle = {
   rollup: _notSupportedBundle,
   rolldown: async (options: any) => {
-    console.log('[rolldown] called with options:', JSON.stringify(options, null, 2))
-    // Minimal mock for Vite 8's loadConfigFromFile which uses rolldown
+    // Phase 1: config file loading — input is a string path
     if (options && typeof options.input === 'string') {
       const fs = _requireSync('node:fs', '/app') as typeof import('fs')
       const code = fs.readFileSync(options.input, 'utf-8')
       const transpiled = _tsTransformSync(code, options.input)
       return {
-        generate: async () => {
-          return {
-            output: [{
-              type: 'chunk',
-              isEntry: true,
-              code: transpiled,
-              fileName: 'vite.config.js',
-              moduleIds: [options.input],
-              imports: [],
-              dynamicImports: []
-            }]
+        generate: async () => _makeRolldownOutput([{
+          fileName: 'vite.config.js', code: transpiled, isEntry: true, moduleIds: [options.input]
+        }]),
+        write: async (outputOptions: any) => {
+          const dir = outputOptions?.dir
+          if (dir) {
+            const fs2 = _requireSync('node:fs', '/app') as typeof import('fs')
+            try { fs2.mkdirSync(dir, { recursive: true }) } catch {}
+            fs2.writeFileSync(dir + '/vite.config.js', transpiled)
           }
+          return _makeRolldownOutput([{
+            fileName: 'vite.config.js', code: transpiled, isEntry: true, moduleIds: [options.input]
+          }])
         },
         close: async () => {}
       }
     }
-    return _notSupportedBundle()
+
+    // Phase 2 & 3: dep pre-bundling / export extraction — input is object or array
+    const fs = _requireSync('node:fs', '/app') as typeof import('fs')
+    const input = options?.input
+    let entries: [string, string][]
+
+    if (Array.isArray(input)) {
+      // export extraction: input is [filePath] array
+      entries = input.map((p: string) => [p, p] as [string, string])
+    } else if (input && typeof input === 'object') {
+      // dep pre-bundling: input is { flatId: filePath } map
+      entries = Object.entries(input) as [string, string][]
+    } else {
+      return { generate: async () => ({ output: [] }), write: async () => ({ output: [] }), close: async () => {} }
+    }
+
+    const chunks: { fileName: string; code: string; isEntry: boolean; moduleIds: string[] }[] = []
+    for (const [name, filePath] of entries) {
+      try {
+        if (!fs.existsSync(filePath)) continue
+        const rawCode = fs.readFileSync(filePath, 'utf-8') as string
+        const isConfigFile = name.includes('vite.config')
+        const code = isConfigFile ? _tsTransformSync(rawCode, filePath) : rawCode
+        const fileName = name.replace(/[^a-zA-Z0-9._-]/g, '_') + '.js'
+        chunks.push({ fileName, code, isEntry: true, moduleIds: [filePath] })
+      } catch (e) {
+        console.error(`[rolldown] skip ${filePath}: ${(e as Error).message}`)
+      }
+    }
+
+    const result = _makeRolldownOutput(chunks)
+
+    return {
+      generate: async () => result,
+      write: async (outputOptions: any) => {
+        const dir = outputOptions?.dir
+        if (dir) {
+          try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+          for (const chunk of chunks) {
+            try { fs.writeFileSync(dir + '/' + chunk.fileName, chunk.code) } catch (e) {
+              console.error(`[rolldown] write failed ${chunk.fileName}: ${(e as Error).message}`)
+            }
+          }
+        }
+        return result
+      },
+      close: async () => {}
+    }
   },
+  scan: async (options: any) => { /* no-op: scanner plugin handles discovery */ },
   watch: () => { throw new Error('rollup/rolldown.watch is not supported in browser') },
   defineConfig: (cfg: unknown) => cfg,
   VERSION: '4.34.0',
@@ -976,6 +1060,7 @@ export const shimMap: Record<string, unknown> = {
   // rolldown subpath stubs — intercepted so native WASM bindings are never loaded
   'rolldown': _rollupBundle,
   'rolldown/parseAst': _rolldownParseAst,
+  'rollup/parseAst': _rolldownParseAst,
   'rolldown/plugins': _rolldownPlugins,
   'rolldown/utils': _rolldownUtils,
   'rolldown/filter': _rolldownFilter,
@@ -1171,14 +1256,17 @@ export const shimMap: Record<string, unknown> = {
     m2.default = m2; return m2
   })(),
 
+  // supports-color — optional dependency of debug/chalk; browser terminal never supports color
+  'supports-color': { stdout: false, stderr: false },
+
   // Stub out native rollup platform bindings — rollup catches the require() error itself
-  '@rollup/rollup-linux-x64-gnu': null,
-  '@rollup/rollup-linux-x64-musl': null,
-  '@rollup/rollup-linux-arm64-gnu': null,
-  '@rollup/rollup-linux-arm64-musl': null,
-  '@rollup/rollup-darwin-x64': null,
-  '@rollup/rollup-darwin-arm64': null,
-  '@rollup/rollup-win32-x64-msvc': null,
+  '@rollup/rollup-linux-x64-gnu': _rollupNativeStub,
+  '@rollup/rollup-linux-x64-musl': _rollupNativeStub,
+  '@rollup/rollup-linux-arm64-gnu': _rollupNativeStub,
+  '@rollup/rollup-linux-arm64-musl': _rollupNativeStub,
+  '@rollup/rollup-darwin-x64': _rollupNativeStub,
+  '@rollup/rollup-darwin-arm64': _rollupNativeStub,
+  '@rollup/rollup-win32-x64-msvc': _rollupNativeStub,
   // Stub out native esbuild platform bindings
   '@esbuild/linux-x64': null,
   '@esbuild/linux-arm64': null,

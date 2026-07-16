@@ -1,6 +1,6 @@
 import { memfsInstance, existsInVfs, isFileInVfs, writeFileToVfs } from './vfs'
 import { path as pathMod } from './shims/path'
-import { process as proc } from './shims/process'
+import { process as proc, setCwdForProcess } from './shims/process'
 
 type RequireFn = (id: string, fromDir: string) => unknown
 type InstallFn  = (packages: Record<string, string>, rootNmDir?: string) => Promise<void>
@@ -22,8 +22,9 @@ export function bindTerminalDeps(req: RequireFn, inst: InstallFn) {
 }
 
 let _cwd = '/examples'
+setCwdForProcess(_cwd)
 export function getCwd() { return _cwd }
-export function setCwd(dir: string) { _cwd = dir }
+export function setCwd(dir: string) { _cwd = dir; setCwdForProcess(dir) }
 
 export let stdout = (text: string) => { self.postMessage({ type: 'stdout', text }) }
 export let stderr = (text: string) => { self.postMessage({ type: 'stderr', text }) }
@@ -178,7 +179,7 @@ function dispatchSyncCommand(cmd: string, args: string[]): number {
 
 export function runCommandSync(cmdline: string, cwd?: string): { stdout: string; stderr: string; code: number } {
   const prevCwd = _cwd
-  if (cwd !== undefined) _cwd = cwd
+  if (cwd !== undefined) { _cwd = cwd; setCwdForProcess(cwd) }
   const andParts = splitOnAnd(cmdline.trim())
   if (andParts.length > 1) {
     for (const part of andParts) {
@@ -246,7 +247,7 @@ export function runCommandSync(cmdline: string, cwd?: string): { stdout: string;
 
   stdout = origStdout
   stderr = origStderr
-  if (cwd !== undefined) _cwd = prevCwd
+  if (cwd !== undefined) { _cwd = prevCwd; setCwdForProcess(prevCwd) }
 
   return { stdout: stdoutBuf.join(''), stderr: stderrBuf.join(''), code }
 }
@@ -413,6 +414,7 @@ function cmdCd(args: string[]): number {
     const st = memfsInstance.statSync(target) as { isDirectory(): boolean }
     if (!st.isDirectory()) { stderr(`cd: ${args[0]}: Not a directory\n`); return 1 }
     _cwd = target
+    setCwdForProcess(target)
     self.postMessage({ type: 'terminal-cwd', cwd: _cwd })
     return 0
   } catch { stderr(`cd: ${args[0] ?? ''}: No such file or directory\n`); return 1 }
@@ -548,6 +550,7 @@ async function cmdNode(args: string[]): Promise<number> {
         const st = memfsInstance.statSync(target) as { isDirectory(): boolean }
         if (!st.isDirectory()) throw new Error()
         _cwd = target
+        setCwdForProcess(target)
         self.postMessage({ type: 'terminal-cwd', cwd: _cwd })
       } catch {
         throw new Error(`chdir: ${dir}: No such file or directory`)
@@ -814,12 +817,22 @@ function cjsToEsmPlugin(viteRoot: string) {
         lines.push(`      // Unwrap ESM namespace: if our CJS-to-ESM transform wrapped it, .default has module.exports`)
         lines.push(`      return ns && ns.default !== undefined ? ns.default : ns;`)
         lines.push(`    }`)
+        lines.push(`    if (typeof globalThis._requireSync === "function") {`)
+        lines.push(`      const dir = ${JSON.stringify(resolvedId.split('/').slice(0, -1).join('/') || '/')};`)
+        lines.push(`      try {`)
+        lines.push(`        return globalThis._requireSync(id, dir);`)
+        lines.push(`      } catch (err) {`)
+        lines.push(`        throw new Error("Cannot find module '" + id + "' from '" + dir + "': " + err.message);`)
+        lines.push(`      }`)
+        lines.push(`    }`)
         lines.push(`    throw new Error("Cannot find module '" + id + "'");`)
         lines.push(`  };`)
         lines.push(`})();`)
-        lines.push(`(function(module, exports, require) {`)
+        lines.push(`const __cjs_filename = ${JSON.stringify(resolvedId)};`)
+        lines.push(`const __cjs_dirname = ${JSON.stringify(resolvedId.split('/').slice(0, -1).join('/') || '/')};`)
+        lines.push(`(function(module, exports, require, __filename, __dirname) {`)
         lines.push(code)
-        lines.push(`})(__cjs_module, __cjs_module.exports, __cjs_require);`)
+        lines.push(`})(__cjs_module, __cjs_module.exports, __cjs_require, __cjs_filename, __cjs_dirname);`)
         lines.push(``)
         lines.push(`const __cjs_result = __cjs_module.exports;`)
         lines.push(`export default __cjs_result;`)
@@ -1022,9 +1035,9 @@ function cmdHelp(): number {
   \x1b[90mKeyboard:\x1b[0m  \x1b[90m↑↓\x1b[0m history  \x1b[90mCtrl+L\x1b[0m clear  \x1b[90mCtrl+C\x1b[0m cancel
 
   \x1b[33mQuick start:\x1b[0m
-    cd /examples/express && npm install && node index.js
+    cd /examples/express-todo && npm install && node index.js
 
-  \x1b[90mExamples:\x1b[0m  express/  fastify/  react/  vue/  node-http/
+  \x1b[90mExamples:\x1b[0m  express-todo/  fastify-todo/  node-http-todo/  react-todo/  vue-todo/  angularjs-todo/  nextjs-todo/
 `)
   return 0
 }

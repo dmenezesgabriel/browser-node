@@ -1,606 +1,139 @@
 import { writeFileToVfs, mkdirpSync } from './vfs'
 
+import expressPkg from '../../examples/express-todo/package.json?raw'
+import expressIndex from '../../examples/express-todo/index.js?raw'
+import expressTest from '../../examples/express-todo/index.test.js?raw'
+import expressVitest from '../../examples/express-todo/vitest.config.mjs?raw'
+import expressHtml from '../../examples/express-todo/public/index.html?raw'
+
+import fastifyPkg from '../../examples/fastify-todo/package.json?raw'
+import fastifyIndex from '../../examples/fastify-todo/index.js?raw'
+import fastifyTest from '../../examples/fastify-todo/index.test.js?raw'
+import fastifyVitest from '../../examples/fastify-todo/vitest.config.mjs?raw'
+import fastifyHtml from '../../examples/fastify-todo/public/index.html?raw'
+
+import nodeHttpPkg from '../../examples/node-http-todo/package.json?raw'
+import nodeHttpIndex from '../../examples/node-http-todo/index.js?raw'
+import nodeHttpTest from '../../examples/node-http-todo/index.test.js?raw'
+import nodeHttpVitest from '../../examples/node-http-todo/vitest.config.mjs?raw'
+import nodeHttpHtml from '../../examples/node-http-todo/public/index.html?raw'
+
+import reactPkg from '../../examples/react-todo/package.json?raw'
+import reactViteConfig from '../../examples/react-todo/vite.config.ts?raw'
+import reactVitest from '../../examples/react-todo/vitest.config.mjs?raw'
+import reactTsconfig from '../../examples/react-todo/tsconfig.json?raw'
+import reactHtml from '../../examples/react-todo/index.html?raw'
+import reactMain from '../../examples/react-todo/src/main.tsx?raw'
+import reactApp from '../../examples/react-todo/src/App.tsx?raw'
+import reactTodos from '../../examples/react-todo/src/todos.js?raw'
+import reactTest from '../../examples/react-todo/tests/todos.test.js?raw'
+
+import vuePkg from '../../examples/vue-todo/package.json?raw'
+import vueViteConfig from '../../examples/vue-todo/vite.config.ts?raw'
+import vueVitest from '../../examples/vue-todo/vitest.config.mjs?raw'
+import vueHtml from '../../examples/vue-todo/index.html?raw'
+import vueMain from '../../examples/vue-todo/src/main.js?raw'
+import vueApp from '../../examples/vue-todo/src/App.vue?raw'
+import vueTodos from '../../examples/vue-todo/src/todos.js?raw'
+import vueTest from '../../examples/vue-todo/tests/todos.test.js?raw'
+
+import angularjsPkg from '../../examples/angularjs-todo/package.json?raw'
+import angularjsServer from '../../examples/angularjs-todo/server.js?raw'
+import angularjsVitest from '../../examples/angularjs-todo/vitest.config.mjs?raw'
+import angularjsHtml from '../../examples/angularjs-todo/public/index.html?raw'
+import angularjsApp from '../../examples/angularjs-todo/public/app.js?raw'
+import angularjsTodos from '../../examples/angularjs-todo/src/todos.js?raw'
+import angularjsTest from '../../examples/angularjs-todo/tests/todos.test.js?raw'
+
+import nextjsPkg from '../../examples/nextjs-todo/package.json?raw'
+import nextjsVitest from '../../examples/nextjs-todo/vitest.config.mjs?raw'
+import nextjsIndex from '../../examples/nextjs-todo/pages/index.js?raw'
+import nextjsApiTodos from '../../examples/nextjs-todo/pages/api/todos.js?raw'
+import nextjsLibTodos from '../../examples/nextjs-todo/lib/todos.js?raw'
+import nextjsTest from '../../examples/nextjs-todo/tests/todos.test.js?raw'
+
 export function initExamples() {
   mkdirpSync('/examples')
 
-  // ── Express ──────────────────────────────────────────────────────────────────
-  mkdirpSync('/examples/express')
-  writeFileToVfs('/examples/express/package.json', JSON.stringify({
-    name: 'express-example',
-    version: '1.0.0',
-    main: 'index.js',
-    dependencies: { express: '^4.18.0' }
-  }, null, 2))
-  writeFileToVfs('/examples/express/index.js',
-`'use strict'
-const express = require('express')
+  // ── Express Todo ──────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/express-todo')
+  mkdirpSync('/examples/express-todo/public')
+  writeFileToVfs('/examples/express-todo/package.json', expressPkg)
+  writeFileToVfs('/examples/express-todo/index.js', expressIndex)
+  writeFileToVfs('/examples/express-todo/index.test.js', expressTest)
+  writeFileToVfs('/examples/express-todo/vitest.config.mjs', expressVitest)
+  writeFileToVfs('/examples/express-todo/public/index.html', expressHtml)
 
-const app = express()
-const PORT = 3000
+  // ── Fastify Todo ──────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/fastify-todo')
+  mkdirpSync('/examples/fastify-todo/public')
+  writeFileToVfs('/examples/fastify-todo/package.json', fastifyPkg)
+  writeFileToVfs('/examples/fastify-todo/index.js', fastifyIndex)
+  writeFileToVfs('/examples/fastify-todo/index.test.js', fastifyTest)
+  writeFileToVfs('/examples/fastify-todo/vitest.config.mjs', fastifyVitest)
+  writeFileToVfs('/examples/fastify-todo/public/index.html', fastifyHtml)
 
-app.get('/', function(req, res) {
-  res.send(\`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Express</title>
-  <style>
-    body { font-family: sans-serif; padding: 2rem; max-width: 640px; margin: 0 auto;
-           background: #0f1117; color: #e6edf3; }
-    h1   { color: #58a6ff; }
-    p    { color: #8b949e; line-height: 1.6; }
-    a    { color: #58a6ff; }
-    code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <h1>Express.js</h1>
-  <p>This server runs entirely in your browser via a Web Worker.</p>
-  <p>Try <a href="/api/hello"><code>GET /api/hello</code></a> for a JSON endpoint.</p>
-</body>
-</html>\`)
-})
+  // ── Node HTTP Todo ────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/node-http-todo')
+  mkdirpSync('/examples/node-http-todo/public')
+  writeFileToVfs('/examples/node-http-todo/package.json', nodeHttpPkg)
+  writeFileToVfs('/examples/node-http-todo/index.js', nodeHttpIndex)
+  writeFileToVfs('/examples/node-http-todo/index.test.js', nodeHttpTest)
+  writeFileToVfs('/examples/node-http-todo/vitest.config.mjs', nodeHttpVitest)
+  writeFileToVfs('/examples/node-http-todo/public/index.html', nodeHttpHtml)
 
-app.get('/api/hello', function(req, res) {
-  res.json({ message: 'Hello from Express!', framework: 'express' })
-})
+  // ── React Todo ────────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/react-todo')
+  mkdirpSync('/examples/react-todo/src')
+  mkdirpSync('/examples/react-todo/tests')
+  writeFileToVfs('/examples/react-todo/package.json', reactPkg)
+  writeFileToVfs('/examples/react-todo/vite.config.ts', reactViteConfig)
+  writeFileToVfs('/examples/react-todo/vitest.config.mjs', reactVitest)
+  writeFileToVfs('/examples/react-todo/tsconfig.json', reactTsconfig)
+  writeFileToVfs('/examples/react-todo/index.html', reactHtml)
+  writeFileToVfs('/examples/react-todo/src/main.tsx', reactMain)
+  writeFileToVfs('/examples/react-todo/src/App.tsx', reactApp)
+  writeFileToVfs('/examples/react-todo/src/todos.js', reactTodos)
+  writeFileToVfs('/examples/react-todo/tests/todos.test.js', reactTest)
 
-app.listen(PORT, function() {
-  console.log('Express server on http://localhost:' + PORT)
-})
-`)
+  // ── Vue Todo ──────────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/vue-todo')
+  mkdirpSync('/examples/vue-todo/src')
+  mkdirpSync('/examples/vue-todo/tests')
+  writeFileToVfs('/examples/vue-todo/package.json', vuePkg)
+  writeFileToVfs('/examples/vue-todo/vite.config.ts', vueViteConfig)
+  writeFileToVfs('/examples/vue-todo/vitest.config.mjs', vueVitest)
+  writeFileToVfs('/examples/vue-todo/index.html', vueHtml)
+  writeFileToVfs('/examples/vue-todo/src/main.js', vueMain)
+  writeFileToVfs('/examples/vue-todo/src/App.vue', vueApp)
+  writeFileToVfs('/examples/vue-todo/src/todos.js', vueTodos)
+  writeFileToVfs('/examples/vue-todo/tests/todos.test.js', vueTest)
 
-  // ── Fastify ───────────────────────────────────────────────────────────────────
-  mkdirpSync('/examples/fastify')
-  writeFileToVfs('/examples/fastify/package.json', JSON.stringify({
-    name: 'fastify-example',
-    version: '1.0.0',
-    main: 'index.js',
-    dependencies: { fastify: '^4.0.0' }
-  }, null, 2))
-  writeFileToVfs('/examples/fastify/index.js',
-`'use strict'
-const fastify = require('fastify')({ logger: false })
-const PORT = 3000
+  // ── AngularJS Todo ────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/angularjs-todo')
+  mkdirpSync('/examples/angularjs-todo/public')
+  mkdirpSync('/examples/angularjs-todo/src')
+  mkdirpSync('/examples/angularjs-todo/tests')
+  writeFileToVfs('/examples/angularjs-todo/package.json', angularjsPkg)
+  writeFileToVfs('/examples/angularjs-todo/server.js', angularjsServer)
+  writeFileToVfs('/examples/angularjs-todo/vitest.config.mjs', angularjsVitest)
+  writeFileToVfs('/examples/angularjs-todo/public/index.html', angularjsHtml)
+  writeFileToVfs('/examples/angularjs-todo/public/app.js', angularjsApp)
+  writeFileToVfs('/examples/angularjs-todo/src/todos.js', angularjsTodos)
+  writeFileToVfs('/examples/angularjs-todo/tests/todos.test.js', angularjsTest)
 
-fastify.get('/', async function(req, reply) {
-  reply.type('text/html')
-  return \`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Fastify</title>
-  <style>
-    body { font-family: sans-serif; padding: 2rem; max-width: 640px; margin: 0 auto;
-           background: #0f1117; color: #e6edf3; }
-    h1   { color: #e879f9; }
-    p    { color: #8b949e; line-height: 1.6; }
-    a    { color: #e879f9; }
-    code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <h1>Fastify</h1>
-  <p>This server runs entirely in your browser via a Web Worker.</p>
-  <p>Try <a href="/api/hello"><code>GET /api/hello</code></a> for a JSON endpoint.</p>
-</body>
-</html>\`
-})
-
-fastify.get('/api/hello', async function() {
-  return { message: 'Hello from Fastify!', framework: 'fastify' }
-})
-
-fastify.listen({ port: PORT }, function(err) {
-  if (err) { console.error(err.message); return }
-  console.log('Fastify server on http://localhost:' + PORT)
-})
-`)
-
-  // ── React ─────────────────────────────────────────────────────────────────────
-  // Serves React UMD build from local node_modules — no CDN, no bundler.
-  // Run: npm install && node server.js
-  mkdirpSync('/examples/react')
-  writeFileToVfs('/examples/react/package.json', JSON.stringify({
-    name: 'react-example',
-    version: '1.0.0',
-    main: 'server.js',
-    dependencies: {
-      express: '^4.18.0',
-      react: '^18.0.0',
-      'react-dom': '^18.0.0'
-    }
-  }, null, 2))
-  writeFileToVfs('/examples/react/server.js',
-`'use strict'
-const path    = require('path')
-const fs      = require('fs')
-const express = require('express')
-
-const app  = express()
-const PORT = 3000
-
-// Serve React UMD builds from local node_modules (installed via npm install).
-// No CDN — everything lives in the in-browser virtual filesystem.
-const nm = path.resolve(__dirname, 'node_modules')
-
-app.get('/react.js', function(req, res) {
-  res.setHeader('Content-Type', 'application/javascript')
-  res.end(fs.readFileSync(path.join(nm, 'react/umd/react.development.js'), 'utf8'))
-})
-
-app.get('/react-dom.js', function(req, res) {
-  res.setHeader('Content-Type', 'application/javascript')
-  res.end(fs.readFileSync(path.join(nm, 'react-dom/umd/react-dom.development.js'), 'utf8'))
-})
-
-app.get('/', function(req, res) {
-  res.setHeader('Content-Type', 'text/html')
-  res.end(\`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>React App</title>
-  <script src="/react.js"></script>
-  <script src="/react-dom.js"></script>
-  <style>
-    body   { font-family: sans-serif; padding: 2rem; background: #0f1117; color: #e6edf3; }
-    h1     { color: #61dafb; }
-    p      { color: #8b949e; }
-    .count { font-size: 3rem; margin: 1rem 0; }
-    button { padding: 8px 20px; background: rgba(97,218,251,0.15);
-             border: 1px solid rgba(97,218,251,0.3); color: #61dafb;
-             border-radius: 6px; cursor: pointer; font-size: 14px; }
-    button:hover { background: rgba(97,218,251,0.25); }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script>
-    // React without JSX — uses React.createElement directly
-    var h = React.createElement
-    function Counter() {
-      var state  = React.useState(0)
-      var count  = state[0]
-      var setCount = state[1]
-      return h('div', null,
-        h('h1', null, 'React Counter'),
-        h('p',  null, 'Loaded from npm — no CDN, no bundler'),
-        h('div', { className: 'count' }, count),
-        h('button', { onClick: function() { setCount(function(c) { return c + 1 }) } }, 'Increment')
-      )
-    }
-    ReactDOM.createRoot(document.getElementById('root')).render(h(Counter))
-  </script>
-</body>
-</html>\`)
-})
-
-app.listen(PORT, function() {
-  console.log('React app on http://localhost:' + PORT)
-})
-`)
-
-  // ── Vue ───────────────────────────────────────────────────────────────────────
-  // Serves Vue global build from local node_modules — no CDN, no bundler.
-  // Run: npm install && node server.js
-  mkdirpSync('/examples/vue')
-  writeFileToVfs('/examples/vue/package.json', JSON.stringify({
-    name: 'vue-example',
-    version: '1.0.0',
-    main: 'server.js',
-    dependencies: {
-      express: '^4.18.0',
-      vue: '^3.0.0'
-    }
-  }, null, 2))
-  writeFileToVfs('/examples/vue/server.js',
-`'use strict'
-const path    = require('path')
-const fs      = require('fs')
-const express = require('express')
-
-const app  = express()
-const PORT = 3000
-
-// Serve Vue global UMD build from local node_modules (installed via npm install).
-// No CDN — everything lives in the in-browser virtual filesystem.
-const nm = path.resolve(__dirname, 'node_modules')
-
-app.get('/vue.js', function(req, res) {
-  res.setHeader('Content-Type', 'application/javascript')
-  res.end(fs.readFileSync(path.join(nm, 'vue/dist/vue.global.js'), 'utf8'))
-})
-
-app.get('/', function(req, res) {
-  res.setHeader('Content-Type', 'text/html')
-  res.end(\`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Vue App</title>
-  <script src="/vue.js"></script>
-  <style>
-    body   { font-family: sans-serif; padding: 2rem; background: #0f1117; color: #e6edf3; }
-    h1     { color: #42d392; }
-    p      { color: #8b949e; }
-    .count { font-size: 3rem; margin: 1rem 0; }
-    button { padding: 8px 20px; background: rgba(66,211,146,0.15);
-             border: 1px solid rgba(66,211,146,0.3); color: #42d392;
-             border-radius: 6px; cursor: pointer; font-size: 14px; }
-    button:hover { background: rgba(66,211,146,0.25); }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script>
-    Vue.createApp({
-      data: function() { return { count: 0 } },
-      template: \\\`
-        <div>
-          <h1>Vue Counter</h1>
-          <p>Loaded from npm — no CDN, no bundler</p>
-          <div class="count">{{ count }}</div>
-          <button @click="count++">Increment</button>
-        </div>
-      \\\`
-    }).mount('#app')
-  </script>
-</body>
-</html>\`)
-})
-
-app.listen(PORT, function() {
-  console.log('Vue app on http://localhost:' + PORT)
-})
-`)
-
-  // ── Plain Node.js HTTP ────────────────────────────────────────────────────────
-  mkdirpSync('/examples/node-http')
-  writeFileToVfs('/examples/node-http/package.json', JSON.stringify({
-    name: 'node-http-example',
-    version: '1.0.0',
-    main: 'index.js',
-    dependencies: {}
-  }, null, 2))
-  writeFileToVfs('/examples/node-http/index.js',
-`'use strict'
-const http = require('http')
-
-const PORT = 3000
-
-const server = http.createServer(function(req, res) {
-  if (req.url === '/api') {
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ message: 'Hello from Node.js http!', url: req.url }))
-    return
-  }
-  res.writeHead(200, { 'Content-Type': 'text/html' })
-  res.end(\`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Node.js HTTP</title>
-  <style>
-    body { font-family: sans-serif; padding: 2rem; max-width: 640px; margin: 0 auto;
-           background: #0f1117; color: #e6edf3; }
-    h1   { color: #f59e0b; }
-    p    { color: #8b949e; line-height: 1.6; }
-    a    { color: #f59e0b; }
-    code { background: #161b22; padding: 2px 6px; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <h1>Node.js HTTP</h1>
-  <p>Using the built-in <code>http</code> module — no dependencies needed.</p>
-  <p>Try <a href="/api"><code>GET /api</code></a> for a JSON endpoint.</p>
-</body>
-</html>\`)
-})
-
-server.listen(PORT, function() {
-  console.log('HTTP server on http://localhost:' + PORT)
-})
-`)
-
-  // ── Vite React TypeScript ──────────────────────────────────────────────────
-  // Loads React 18 UMD builds via <script> tags (no ESM imports from node_modules)
-  // so that Vite's dep optimizer (rolldown) is never triggered.
-  mkdirpSync('/examples/vite-react-ts')
-  mkdirpSync('/examples/vite-react-ts/src')
-  
-  writeFileToVfs('/examples/vite-react-ts/package.json', JSON.stringify({
-    name: 'vite-react-ts',
-    private: true,
-    version: '1.0.0',
-    type: 'module',
-    scripts: {
-      dev: 'vite --port 3000',
-      build: 'vite build',
-      preview: 'vite preview'
-    },
-    dependencies: {
-      react: '^18.3.1',
-      'react-dom': '^18.3.1'
-    },
-    devDependencies: {
-      vite: '^8.0.16',
-      typescript: '^6.0.3'
-    }
-  }, null, 2))
-
-  writeFileToVfs('/examples/vite-react-ts/tsconfig.json', JSON.stringify({
-    compilerOptions: {
-      target: 'ES2022',
-      module: 'ESNext',
-      moduleResolution: 'bundler',
-      jsx: 'react',
-      strict: true,
-      skipLibCheck: true
-    }
-  }, null, 2))
-
-  writeFileToVfs('/examples/vite-react-ts/vite.config.ts',
-`import { defineConfig } from 'vite'
-
-export default defineConfig({
-  server: {
-    port: 3000
-  }
-})
-`)
-
-  writeFileToVfs('/examples/vite-react-ts/index.html',
-`<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS</title>
-    <style>
-      :root {
-        --bg: #0d1117;
-        --panel: #161b22;
-        --text: #c9d1d9;
-        --accent: #58a6ff;
-        --accent-gradient: linear-gradient(135deg, #58a6ff 0%, #1f6feb 100%);
-      }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        font-family: system-ui, -apple-system, sans-serif;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-      }
-      .container { max-width: 600px; width: 100%; padding: 2rem; box-sizing: border-box; }
-      .header { text-align: center; margin-bottom: 2rem; }
-      .logo-react { font-size: 4rem; animation: spin 15s linear infinite; display: inline-block; margin-bottom: 1rem; }
-      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      h1 { font-size: 2rem; font-weight: 800; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-      .card { background: var(--panel); border: 1px solid #30363d; border-radius: 12px; padding: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-      .counter-box { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
-      .count-label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.1em; color: #8b949e; }
-      .count-val { font-size: 4rem; font-weight: 700; color: #fff; }
-      .button-group { display: flex; gap: 1rem; margin-top: 1rem; }
-      .btn { padding: 10px 24px; font-size: 1rem; font-weight: 600; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: all 0.15s ease; }
-      .btn-primary { background: var(--accent); color: #fff; }
-      .btn-primary:hover { background: #79c0ff; }
-      .btn-secondary { background: #21262d; color: #c9d1d9; border-color: #30363d; }
-      .btn-secondary:hover { background: #30363d; }
-      .btn-muted { background: transparent; color: #8b949e; border-color: #21262d; }
-      .btn-muted:hover { color: #fff; border-color: #30363d; }
-    </style>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script src="/node_modules/react/umd/react.development.js"></script>
-    <script src="/node_modules/react-dom/umd/react-dom.development.js"></script>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-`)
-
-  writeFileToVfs('/examples/vite-react-ts/src/main.tsx',
-`import App from './App'
-
-const root = ReactDOM.createRoot(document.getElementById('root'))
-root.render(React.createElement(App))
-`)
-
-  writeFileToVfs('/examples/vite-react-ts/src/App.tsx',
-`const { useState } = React
-
-export default function App() {
-  const [count, setCount] = useState(0)
-  return (
-    <div className="container">
-      <header className="header">
-        <div className="logo-react">⚛️</div>
-        <h1>Vite + React + TypeScript</h1>
-      </header>
-      <main className="card">
-        <div className="counter-box">
-          <span className="count-label">Count</span>
-          <span className="count-val">{count}</span>
-          <div className="button-group">
-            <button onClick={() => setCount(c => c - 1)} className="btn btn-secondary">-</button>
-            <button onClick={() => setCount(0)} className="btn btn-muted">Reset</button>
-            <button onClick={() => setCount(c => c + 1)} className="btn btn-primary">+</button>
-          </div>
-        </div>
-      </main>
-    </div>
-  )
-}
-`)
-
-  // ── Vite Angular TypeScript ────────────────────────────────────────────────
-  mkdirpSync('/examples/vite-angular-ts')
-  mkdirpSync('/examples/vite-angular-ts/src')
-  mkdirpSync('/examples/vite-angular-ts/src/app')
-
-  writeFileToVfs('/examples/vite-angular-ts/tsconfig.json', JSON.stringify({
-    compilerOptions: {
-      experimentalDecorators: true,
-      emitDecoratorMetadata: true,
-      target: "ES2022",
-      module: "ESNext",
-      moduleResolution: "bundler",
-      esModuleInterop: true,
-      skipLibCheck: true
-    }
-  }, null, 2))
-
-  writeFileToVfs('/examples/vite-angular-ts/tsconfig.app.json', JSON.stringify({
-    extends: "./tsconfig.json",
-    compilerOptions: {},
-    include: ["src/**/*.ts"]
-  }, null, 2))
-
-  writeFileToVfs('/examples/vite-angular-ts/package.json', JSON.stringify({
-    name: 'vite-angular-ts',
-    private: true,
-    version: '1.0.0',
-    type: 'module',
-    scripts: {
-      dev: 'vite --port 3000',
-      build: 'vite build',
-      preview: 'vite preview'
-    },
-    dependencies: {
-      '@angular/core': '^19.0.0',
-      '@angular/common': '^19.0.0',
-      '@angular/compiler': '^19.0.0',
-      '@angular/platform-browser': '^19.0.0',
-      '@angular/platform-browser-dynamic': '^19.0.0',
-      rxjs: '^7.8.0',
-      'zone.js': '~0.14.0'
-    },
-    devDependencies: {
-      vite: '^8.0.16',
-      typescript: '5.5.4',
-      '@angular/build': '^19.0.0',
-      '@angular/compiler-cli': '^19.0.0',
-      '@analogjs/vite-plugin-angular': '^2.6.0'
-    }
-  }, null, 2))
-
-  writeFileToVfs('/examples/vite-angular-ts/vite.config.ts',
-`import { defineConfig } from 'vite'
-import angular from '@analogjs/vite-plugin-angular'
-
-export default defineConfig({
-  server: {
-    port: 3000,
-    hmr: false
-  },
-  optimizeDeps: {
-    disabled: true
-  },
-  plugins: [angular({ tsconfig: '/examples/vite-angular-ts/tsconfig.app.json' })]
-})
-`)
-
-  writeFileToVfs('/examples/vite-angular-ts/index.html',
-`<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Angular + Vite + TS</title>
-    <style>
-      body {
-        margin: 0;
-        background: #0d1117;
-        color: #c9d1d9;
-        font-family: system-ui, -apple-system, sans-serif;
-      }
-    </style>
-  </head>
-  <body>
-    <app-root>Loading Angular application...</app-root>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
-</html>
-`)
-
-  writeFileToVfs('/examples/vite-angular-ts/src/main.ts',
-`import 'zone.js'
-import { bootstrapApplication } from '@angular/platform-browser'
-import { AppComponent } from './app/app.component'
-
-bootstrapApplication(AppComponent)
-  .catch(err => console.error(err))
-`)
-
-  writeFileToVfs('/examples/vite-angular-ts/src/app/app.component.ts',
-`import { Component } from '@angular/core'
-
-@Component({
-  selector: 'app-root',
-  standalone: true,
-  template: \`
-    <div class="container">
-      <header class="header">
-        <div class="logo">🅰️</div>
-        <h1>Angular + Vite + TypeScript</h1>
-      </header>
-      <main class="card">
-        <p class="subtitle">A full reactive Todo app running inside your browser node environment.</p>
-        <div class="input-group">
-          <input #newTodo placeholder="What needs to be done?" (keyup.enter)="addTodo(newTodo.value); newTodo.value=''">
-          <button (click)="addTodo(newTodo.value); newTodo.value=''">Add Task</button>
-        </div>
-        <ul class="todo-list">
-          <li *ngFor="let todo of todos; let i = index" [class.completed]="todo.completed">
-            <span (click)="toggleTodo(i)">{{ todo.text }}</span>
-            <button class="btn-delete" (click)="deleteTodo(i)">&times;</button>
-          </li>
-        </ul>
-      </main>
-    </div>
-  \`,
-  styles: [\`
-    .container { max-width: 500px; margin: 2rem auto; padding: 0 1rem; }
-    .header { text-align: center; margin-bottom: 2rem; }
-    .logo { font-size: 4rem; display: inline-block; margin-bottom: 0.5rem; }
-    h1 { font-size: 1.8rem; background: linear-gradient(135deg, #f50057 0%, #c51162 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-    .subtitle { color: #8b949e; text-align: center; margin-bottom: 1.5rem; font-size: 0.95rem; }
-    .input-group { display: flex; gap: 8px; margin-bottom: 1.5rem; }
-    input { flex: 1; padding: 12px 16px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; color: #e6edf3; outline: none; font-size: 0.95rem; }
-    input:focus { border-color: #f50057; }
-    button { padding: 12px 20px; background: #f50057; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.95rem; }
-    button:hover { background: #c51162; }
-    .todo-list { list-style: none; padding: 0; margin: 0; }
-    li { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #21262d; transition: background 0.15s ease; border-radius: 6px; }
-    li:hover { background: rgba(255,255,255,0.02); }
-    li.completed span { text-decoration: line-through; color: #8b949e; }
-    span { cursor: pointer; flex: 1; font-size: 0.95rem; }
-    .btn-delete { background: transparent; color: #8b949e; border: none; font-size: 18px; cursor: pointer; padding: 0 4px; }
-    .btn-delete:hover { color: #f85149; }
-  \`]
-})
-export class AppComponent {
-  todos = [
-    { text: 'Understand browser-node', completed: true },
-    { text: 'Try React TSX example', completed: false },
-    { text: 'Add Angular CLI features', completed: false }
-  ]
-  addTodo(text: string) {
-    if (text.trim()) this.todos.push({ text, completed: false })
-  }
-  toggleTodo(index: number) {
-    this.todos[index].completed = !this.todos[index].completed
-  }
-  deleteTodo(index: number) {
-    this.todos.splice(index, 1)
-  }
-}
-`)
+  // ── Next.js Todo ──────────────────────────────────────────────────────────────────
+  mkdirpSync('/examples/nextjs-todo')
+  mkdirpSync('/examples/nextjs-todo/pages')
+  mkdirpSync('/examples/nextjs-todo/pages/api')
+  mkdirpSync('/examples/nextjs-todo/lib')
+  mkdirpSync('/examples/nextjs-todo/tests')
+  writeFileToVfs('/examples/nextjs-todo/package.json', nextjsPkg)
+  writeFileToVfs('/examples/nextjs-todo/vitest.config.mjs', nextjsVitest)
+  writeFileToVfs('/examples/nextjs-todo/pages/index.js', nextjsIndex)
+  writeFileToVfs('/examples/nextjs-todo/pages/api/todos.js', nextjsApiTodos)
+  writeFileToVfs('/examples/nextjs-todo/lib/todos.js', nextjsLibTodos)
+  writeFileToVfs('/examples/nextjs-todo/tests/todos.test.js', nextjsTest)
 
   writeFileToVfs('/examples/README.md',
 `# Examples
@@ -608,25 +141,21 @@ export class AppComponent {
 Each folder is a self-contained project. To run one:
 
 \`\`\`
-cd /examples/vite-react-ts && npm install && npm run dev
+cd /examples/express-todo && npm install && node index.js
 \`\`\`
 
 Then open the Preview tab to see it live.
 
 ## Available examples
 
-| Folder           | Entry point    | Dependencies                                 |
-|------------------|----------------|----------------------------------------------|
-| vite-react-ts/   | npm run dev    | react, react-dom, vite, typescript           |
-| vite-angular-ts/ | npm run dev    | @angular/*, rxjs, zone.js, vite, typescript   |
-| express/         | node index.js  | express                                      |
-| fastify/         | node index.js  | fastify                                      |
-| react/           | node server.js | express, react, react-dom                    |
-| vue/             | node server.js | express, vue                                 |
-| node-http/       | node index.js  | none (built-in only)                         |
-
-React and Vue examples serve the framework UMD build from local node_modules.
-No CDN — everything runs inside the browser virtual filesystem.
+| Folder            | Type               | Start command         | Test command |
+|-------------------|--------------------|----------------------|--------------|
+| express-todo/     | Express API + UI   | \`node index.js\`     | \`npm test\` |
+| fastify-todo/     | Fastify API + UI   | \`node index.js\`     | \`npm test\` |
+| node-http-todo/   | Node HTTP API + UI | \`node index.js\`     | \`npm test\` |
+| react-todo/       | Vite + React SPA   | \`npm run dev\`       | \`npm test\` |
+| vue-todo/         | Vite + Vue SPA     | \`npm run dev\`       | \`npm test\` |
+| angularjs-todo/   | Express + AngularJS | \`node server.js\`   | \`npm test\` |
+| nextjs-todo/      | Next.js Pages      | \`npm run dev\`       | \`npm test\` |
 `)
 }
-

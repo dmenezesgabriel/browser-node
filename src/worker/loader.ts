@@ -1,4 +1,4 @@
-import { memfsInstance, existsInVfs, isFileInVfs } from './vfs'
+import { memfsInstance, existsInVfs, isFileInVfs, writeFileToVfs } from './vfs'
 import { shimMap } from './shims/index'
 import { path } from './shims/path'
 
@@ -13,6 +13,179 @@ export async function getSucraseTransform(): Promise<typeof _sucraseTransform> {
 
 // Cache of resolved modules
 const moduleCache = new Map<string, { exports: unknown }>()
+
+/**
+ * Replace `import(...)` calls with `__import_fn(...)` while skipping string
+ * literals, template-literal *text* portions (but not `${...}` expressions),
+ * single-/multi-line comments, and regex literals.
+ *
+ * A naive regex like /\bimport\s*\(/g matches inside code-generation strings
+ * (e.g. template literals that build `import('…')` for the browser), which
+ * corrupts the generated code. This scanner tracks context to avoid that.
+ */
+function replaceDynamicImportCalls(src: string): string {
+  let out = ''
+  let i = 0
+  const len = src.length
+  while (i < len) {
+    const ch = src[i]
+    const next = i + 1 < len ? src[i + 1] : ''
+
+    // ── Single-line comment ──
+    if (ch === '/' && next === '/') {
+      const end = src.indexOf('\n', i)
+      out += end === -1 ? src.slice(i) : src.slice(i, end + 1)
+      i = end === -1 ? len : end + 1
+      continue
+    }
+    // ── Multi-line comment ──
+    if (ch === '/' && next === '*') {
+      const end = src.indexOf('*/', i + 2)
+      out += end === -1 ? src.slice(i) : src.slice(i, end + 2)
+      i = end === -1 ? len : end + 2
+      continue
+    }
+    // ── String literal ──
+    if (ch === '"' || ch === "'") {
+      let j = i + 1
+      while (j < len) {
+        if (src[j] === '\\') { j += 2; continue }
+        if (src[j] === ch) break
+        j++
+      }
+      out += src.slice(i, j + 1)
+      i = j + 1
+      continue
+    }
+    // ── Regex literal heuristic ──
+    // '/' starts a regex when the preceding token is an operator, keyword, etc.
+    if (ch === '/' && i > 0) {
+      const prev = out.trimEnd().slice(-1)
+      if ('=(:,;!&|?+~^%{}[];'.includes(prev) ||
+          out.trimEnd().endsWith('return') ||
+          out.trimEnd().endsWith('case') ||
+          out.trimEnd().endsWith('typeof') ||
+          out.trimEnd().endsWith('void')) {
+        let j = i + 1
+        while (j < len && src[j] !== '/') {
+          if (src[j] === '\\') j++
+          if (src[j] === '[') {
+            j++
+            while (j < len && src[j] !== ']') {
+              if (src[j] === '\\') j++
+              j++
+            }
+          }
+          j++
+        }
+        out += src.slice(i, j + 1)
+        i = j + 1
+        continue
+      }
+    }
+    // ── Template literal ──
+    if (ch === '`') {
+      out += '`'
+      i++
+      while (i < len && src[i] !== '`') {
+        if (src[i] === '\\') { out += src[i]; out += src[i + 1] || ''; i += 2; continue }
+        if (src[i] === '$' && src[i + 1] === '{') {
+          out += '${'
+          i += 2
+          // Walk the expression, tracking brace depth, so we skip back into text
+          let depth = 1
+          while (i < len && depth > 0) {
+            const ec = src[i]
+            const en = i + 1 < len ? src[i + 1] : ''
+            if (ec === '/' && en === '/') {
+              const end = src.indexOf('\n', i)
+              out += end === -1 ? src.slice(i) : src.slice(i, end + 1)
+              i = end === -1 ? len : end + 1
+              continue
+            }
+            if (ec === '/' && en === '*') {
+              const end = src.indexOf('*/', i + 2)
+              out += end === -1 ? src.slice(i) : src.slice(i, end + 2)
+              i = end === -1 ? len : end + 2
+              continue
+            }
+            if (ec === '"' || ec === "'") {
+              let j = i + 1
+              while (j < len) {
+                if (src[j] === '\\') { j += 2; continue }
+                if (src[j] === ec) break
+                j++
+              }
+              out += src.slice(i, j + 1)
+              i = j + 1
+              continue
+            }
+            if (ec === '`') {
+              // Nested template literal — recurse the template scanner
+              out += '`'
+              i++
+              while (i < len && src[i] !== '`') {
+                if (src[i] === '\\') { out += src[i]; out += src[i + 1] || ''; i += 2; continue }
+                if (src[i] === '$' && src[i + 1] === '{') {
+                  // Nested expression inside nested template — just copy for simplicity
+                  out += '${'
+                  i += 2
+                  let nd = 1
+                  while (i < len && nd > 0) {
+                    if (src[i] === '{') nd++
+                    if (src[i] === '}') nd--
+                    if (nd > 0) out += src[i]
+                    i++
+                  }
+                  out += '}'
+                  continue
+                }
+                out += src[i]
+                i++
+              }
+              if (i < len) { out += '`'; i++ }
+              continue
+            }
+            if (ec === '{') depth++
+            if (ec === '}') { depth--; if (depth === 0) { out += '}'; i++; continue } }
+            // Inside template expression — delegate to main import() replacement
+            if (ec === 'i' && src.slice(i, i + 7) === 'import' &&
+                /\s*\(/.test(src.slice(i + 7, i + 12)) &&
+                (i === 0 || /[^a-zA-Z0-9_$]/.test(src[i - 1]))) {
+              out += '(s => __import_fn(s, __dirname))('
+              i += 7
+              while (i < len && /\s/.test(src[i])) { out += src[i]; i++ }
+              i++ // skip '('
+              continue
+            }
+            out += ec
+            i++
+          }
+          continue
+        }
+        out += src[i]
+        i++
+      }
+      if (i < len) { out += '`'; i++ }
+      continue
+    }
+
+    // ── Dynamic import() call ──
+    if (ch === 'i' && src.slice(i, i + 7) === 'import' &&
+        /\s*\(/.test(src.slice(i + 7, i + 12)) &&
+        (i === 0 || /[^a-zA-Z0-9_$]/.test(src[i - 1]))) {
+      out += '(s => __import_fn(s, __dirname))('
+      i += 7
+      while (i < len && /\s/.test(src[i])) { out += src[i]; i++ }
+      i++ // skip '('
+      continue
+    }
+
+    out += ch
+    i++
+  }
+  return out
+}
 
 
 
@@ -248,12 +421,24 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
     source = source.replace(/^#![^\n]*\n?/, '')
   }
 
-  // Next.js _export helper prototype pollution and redefinition patch
-  const regex = /function\s+_export\s*\(\s*target\s*,\s*all\s*\)\s*\{\s*for\s*\(\s*var\s+name\s+in\s+all\s*\)\s*Object\.defineProperty\s*\(\s*target\s*,\s*name\s*,\s*\{\s*enumerable\s*:\s*true\s*,\s*get\s*:\s*all\[name\]\s*\}\s*\)\s*;?\s*\}/g;
-  source = source.replace(
-    regex,
-    'function _export(target, all) { for(var name in all) if (Object.prototype.hasOwnProperty.call(all, name)) { try { Object.defineProperty(target, name, { enumerable: true, configurable: true, get: all[name] }) } catch(e) {} } }'
-  )
+  // Rollup/Next.js _export and __exportStar helpers use Object.defineProperty with
+  // `get: exports[name]` where exports[name] is expected to be a getter function.
+  // In our CJS loader, exports are plain values, not getter functions, so `get: 42` throws.
+  // We intercept Object.defineProperty during module execution to auto-wrap non-function
+  // getters, which is more robust than regex-patching source code.
+  const origDefineProperty = Object.defineProperty
+  const interceptedDefineProperty = function(obj: any, prop: PropertyKey, desc: any) {
+    // Vite/Rolldown bundles can emit `Object.defineProperty(all, name, { get: all[name] })`
+    // where `all[name]` is a plain value (not a function).  A non-callable getter throws,
+    // so we wrap it in a function.  Normal CJS `__createBinding` already provides a
+    // function getter (`get: function() { return m[k]; }`) — those must be left alone,
+    // otherwise the return value gets double-wrapped and breaks module type enums.
+    if (desc && 'get' in desc && typeof desc.get !== 'function') {
+      const val = desc.get
+      desc.get = () => () => val
+    }
+    return origDefineProperty.call(this, obj, prop, desc)
+  }
 
   const ext = path.extname(filePath).slice(1)
   const isTs = ['ts', 'tsx', 'cts', 'mts'].includes(ext)
@@ -345,9 +530,10 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
       console.log(src.substring(0, 1000))
       console.log('--- END REPLACED SOURCE ---')
     }
-    // Route dynamic import() calls through VFS-aware __import_fn (defined at global scope in index.ts)
-    // This catches await import('...') calls that would otherwise use the browser's native module loader.
-    src = src.replace(/\bimport\s*\(/g, '__import_fn(')
+    // Route dynamic import() calls through VFS-aware __import_fn (defined at global scope in index.ts).
+    // We use a character-level scanner instead of a naive regex so that import() inside
+    // string literals, template-literal text, and comments is left untouched.
+    src = replaceDynamicImportCalls(src)
     const wrapped = `(async function(require, module, exports, __dirname, __filename) {
 const __filename_url = 'file://' + __filename;
 const __import_meta = { url: __filename_url, dirname: __dirname, filename: __filename, env: {} };
@@ -359,22 +545,59 @@ ${src}
       fn = (0, eval)(wrapped)
     } catch (err: any) {
       if (err?.name === 'SyntaxError') {
-        console.error(`[loader] Parse SyntaxError in ${filePath}:`, err.message);
-        console.error(`[loader] Code snippet:\n`, wrapped.split('\n').map((l, i) => `${i+1}: ${l}`).join('\n').substring(0, 2000));
+        console.error(`[loader] Parse SyntaxError in ${filePath}: ${err.message}`)
+        // Extract line:col from the SyntaxError stack (e.g. "<anonymous>:1234:56")
+        const synMatch = err.stack?.match(/<anonymous>:(\d+):(\d+)/)
+        if (synMatch) {
+          const lineNum = parseInt(synMatch[1], 10)
+          const colNum = parseInt(synMatch[2], 10)
+          const wrappedLines = wrapped.split('\n')
+          const errLine = wrappedLines[lineNum - 1] ?? ''
+          const start = Math.max(0, colNum - 40)
+          const end = Math.min(errLine.length, colNum + 40)
+          console.error(`[loader] At line ${lineNum}, col ${colNum}:`)
+          console.error(`[loader] Context: ...${errLine.substring(start, end)}...`)
+          console.error(`[loader] Arrow:    ${' '.repeat(40)}^`)
+        }
+        console.error(`[loader] Code snippet:\n`, wrapped.split('\n').map((l: string, i: number) => `${i+1}: ${l}`).join('\n').substring(0, 3000))
       }
       throw err;
     }
-    
+
     try {
-      const result = fn(requireFn, mod, mod.exports, dir, filePath)
-      if (result && typeof result.then === 'function') {
-        result.catch((err: Error) => {
-          console.error(`[loader] Async error in ${filePath}:`, err)
-          moduleCache.delete(filePath)
-        })
+      // Temporarily intercept Object.defineProperty to handle Rollup's _export helper
+      // which uses `get: exports[name]` — when exports are plain values (not getter
+      // functions), this throws. Wrap non-function getters automatically.
+      Object.defineProperty = interceptedDefineProperty as any
+      try {
+        const result = fn(requireFn, mod, mod.exports, dir, filePath)
+        if (result && typeof result.then === 'function') {
+          result.catch((err: Error) => {
+            console.error(`[loader] Async error in ${filePath}:`, err)
+            moduleCache.delete(filePath)
+          })
+        }
+      } finally {
+        Object.defineProperty = origDefineProperty
       }
     } catch (err) {
-      console.error(`[loader] Error executing module ${filePath}:`, err)
+      Object.defineProperty = origDefineProperty
+      const lines = src.split('\n')
+      // Write error details to a temp file for debugging
+      const errLines: string[] = []
+      errLines.push(`Error in ${filePath}: ${err}`)
+      const stackMatch = (err as Error)?.stack?.match(/<anonymous>:(\d+):(\d+)/)
+      if (stackMatch) {
+        const lineNum = parseInt(stackMatch[1], 10)
+        const srcLine = lineNum - 4
+        const start = Math.max(0, srcLine - 3)
+        const end = Math.min(lines.length, srcLine + 4)
+        errLines.push(`Stack line: ${lineNum}, source line: ${srcLine}`)
+        for (let i = start; i < end; i++) {
+          errLines.push(`  ${i === srcLine ? '>>>' : '   '} ${i + 1}: ${lines[i]}`)
+        }
+      }
+      try { writeFileToVfs('/tmp/loader-error.txt', errLines.join('\n')) } catch {}
       throw err
     }
   }

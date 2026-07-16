@@ -2,4 +2,6 @@ node_modules/
 dist/
 *.local
 .playwright-cli/
+test-results/
+examples/
 tests/e2e/results.json

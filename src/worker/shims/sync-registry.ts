@@ -8,4 +8,5 @@ export function bindRequireSync(
   _requireSync = fn
   _resolveModule = resolveFn
   globalThis._requireSync = fn
+  globalThis._resolveModule = resolveFn
 }

@@ -89,8 +89,8 @@ bindRequireSync(requireSync, resolveModule)
 
 // Global dynamic import handler — routes through VFS-aware requireSync.
 // Used by source-level import() → __import_fn() replacement in loader.ts.
-globalThis.__import_fn = (specifier: string) => {
-  const cwd = getCwd ? getCwd() : '/app'
+globalThis.__import_fn = (specifier: string, fromDir?: string) => {
+  const cwd = fromDir || (getCwd ? getCwd() : '/app')
   return Promise.resolve(requireSync(specifier, cwd))
 }
 
