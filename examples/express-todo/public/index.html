@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Express Todo</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: system-ui, -apple-system, sans-serif; padding: 2rem; max-width: 480px; margin: 0 auto; background: #0f1117; color: #e6edf3; }
+h1 { color: #58a6ff; text-align: center; }
+.input-row { display: flex; gap: 8px; margin-bottom: 1.5rem; }
+input[type="text"] { flex: 1; padding: 10px 14px; background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 14px; outline: none; }
+input[type="text"]:focus { border-color: #58a6ff; }
+button { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; }
+.add-btn { background: #238636; color: #fff; }
+.add-btn:hover { background: #2ea043; }
+ul { list-style: none; padding: 0; }
+li { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #21262d; }
+li:last-child { border-bottom: none; }
+li span { flex: 1; cursor: pointer; }
+li span.done { text-decoration: line-through; color: #8b949e; }
+.del-btn { background: transparent; color: #f85149; font-size: 16px; padding: 4px 8px; border: none; cursor: pointer; }
+.del-btn:hover { background: rgba(248,81,73,0.1); border-radius: 4px; }
+.empty { text-align: center; color: #8b949e; padding: 2rem; }
+input[type="checkbox"] { accent-color: #58a6ff; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Express Todos</h1>
+<div class="input-row">
+<input type="text" id="todo-input" placeholder="What needs to be done?" onkeydown="if(event.key==='Enter') addTodo()">
+<button class="add-btn" onclick="addTodo()">Add</button>
+</div>
+<ul id="todo-list"></ul>
+<script>
+async function fetchApi(method, path, body) {
+  var opts = { method: method, headers: {} }
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body) }
+  var res = await fetch(path, opts)
+  if (res.status === 204) return null
+  return res.json()
+}
+function esc(s) { return s.replace(/[<>&]/g, function(c) { return ({ '<':'&lt;', '>':'&gt;', '&':'&amp;' })[c] }) }
+async function loadTodos() {
+  var todos = await fetchApi('GET', '/api/todos')
+  var list = document.getElementById('todo-list')
+  if (todos.length === 0) { list.innerHTML = '<li class="empty">No todos yet. Add one above!</li>'; return }
+  list.innerHTML = todos.map(function(t) {
+    return '<li>' +
+      '<input type="checkbox"' + (t.completed ? ' checked' : '') + ' onchange="toggleTodo(' + t.id + ', this.checked)">' +
+      '<span class="' + (t.completed ? 'done' : '') + '" onclick="toggleTodo(' + t.id + ', ' + !t.completed + ')">' + esc(t.text) + '</span>' +
+      '<button class="del-btn" onclick="deleteTodo(' + t.id + ')">\u00d7</button></li>'
+  }).join('')
+}
+async function addTodo() {
+  var input = document.getElementById('todo-input')
+  var text = input.value.trim()
+  if (!text) return
+  input.value = ''
+  await fetchApi('POST', '/api/todos', { text: text })
+  loadTodos()
+}
+async function toggleTodo(id, completed) {
+  await fetchApi('PATCH', '/api/todos/' + id, { completed: completed })
+  loadTodos()
+}
+async function deleteTodo(id) {
+  await fetchApi('DELETE', '/api/todos/' + id)
+  loadTodos()
+}
+loadTodos()
+</script>
+</body>
+</html>
