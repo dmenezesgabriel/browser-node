@@ -55,6 +55,19 @@ class BrowserNodeWorld extends World {
     await this._waitReady()
   }
 
+  // Open the Preview tab and wait until the served app renders the given text
+  // inside the (srcdoc, same-origin) preview iframe.
+  async openPreview() {
+    await this.page.getByRole('button', { name: 'Preview' }).click()
+  }
+
+  async waitPreviewContains(text, timeoutMs = 20000) {
+    await this.page.waitForFunction((t) => {
+      const f = document.getElementById('preview')
+      try { return (f?.contentDocument?.body?.innerText || '').includes(t) } catch { return false }
+    }, text, { timeout: timeoutMs })
+  }
+
   // Reload in the same context so OPFS (per-origin) survives. The page's
   // terminal command counter resets on reload, so reset ours to match; wait for
   // the mirror debounce (500ms) to flush pending writes to OPFS before reloading.

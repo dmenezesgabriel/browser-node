@@ -13,6 +13,7 @@ const base = {
     'tests/e2e/features/vite.feature',
     'tests/e2e/features/terminal.feature',
     'tests/e2e/features/persistence.feature',
+    'tests/e2e/features/preview.feature',
     'tests/e2e/features/tutorial.feature',
     'tests/e2e/features/angular-tutorial.feature',
     'tests/e2e/features/ui.feature',

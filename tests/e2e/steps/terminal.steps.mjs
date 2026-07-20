@@ -42,3 +42,11 @@ Given('OPFS persistence is enabled', async function () {
 When('I reload the page', { timeout: 60000 }, async function () {
   await this.reloadPage()
 })
+
+When('I open the preview', async function () {
+  await this.openPreview()
+})
+
+Then('the preview should render {string}', { timeout: 25000 }, async function (text) {
+  await this.waitPreviewContains(text)
+})
