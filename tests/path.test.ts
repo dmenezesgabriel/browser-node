@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { path } from '../src/worker/shims/path'
+// Importing the process shim installs it as globalThis.process, which path.resolve
+// reads for cwd-relative resolution.
+import { setCwdForProcess } from '../src/worker/shims/process'
 
 describe('path shim', () => {
   describe('join', () => {
@@ -39,6 +42,19 @@ describe('path shim', () => {
     it('relative from absolute', () => expect(path.resolve('/a', 'b')).toBe('/a/b'))
     it('later absolute wins', () => expect(path.resolve('/a', '/b')).toBe('/b'))
     it('with ..', () => expect(path.resolve('/a/b', '../c')).toBe('/a/c'))
+
+    // Regression: a pure-relative path resolves against process.cwd(), not '/'.
+    // express.static('public') relies on this; the old shim returned '/public'
+    // and served empty/404 previews.
+    it('resolves relative against process.cwd()', () => {
+      setCwdForProcess('/examples/express-todo')
+      try {
+        expect(path.resolve('public/index.html')).toBe('/examples/express-todo/public/index.html')
+        expect(path.resolve('public')).toBe('/examples/express-todo/public')
+      } finally {
+        setCwdForProcess('/app')
+      }
+    })
   })
 
   describe('isAbsolute', () => {

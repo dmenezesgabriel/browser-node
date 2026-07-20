@@ -18,12 +18,20 @@ export function join(...parts: string[]): string {
 
 export function resolve(...parts: string[]): string {
   let resolved = ''
-  for (let i = parts.length - 1; i >= 0; i--) {
+  let isAbsolute = false
+  for (let i = parts.length - 1; i >= 0 && !isAbsolute; i--) {
     const p = parts[i]
+    if (!p) continue
     resolved = resolved ? p + '/' + resolved : p
-    if (p.startsWith('/')) break
+    isAbsolute = p.startsWith('/')
   }
-  if (!resolved.startsWith('/')) resolved = '/' + resolved
+  // Node resolves remaining relative paths against process.cwd() (not '/');
+  // express.static('public') and friends rely on this.
+  if (!isAbsolute) {
+    const proc = (globalThis as { process?: { cwd?: () => string } }).process
+    const cwd = proc?.cwd?.() ?? '/'
+    resolved = resolved ? cwd + '/' + resolved : cwd
+  }
   return normalize(resolved)
 }
 

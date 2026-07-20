@@ -1,5 +1,6 @@
 // Delegates to the shared memfs instance
 import { memfsInstance } from '../vfs'
+import { Readable, Writable } from './stream'
 
 // Convert a path argument that may be a URL object or file:// string to a plain path string.
 function toPath(p: unknown): string {
@@ -50,10 +51,75 @@ const _wrapSync = (name: string) => {
   if (typeof _fs[name] === 'function') _fs[name] = _wrap(_fs[name] as (...args: unknown[]) => unknown)
 }
 for (const m of ['readFileSync','writeFileSync','statSync','lstatSync','existsSync','readdirSync',
-                  'mkdirSync','rmdirSync','unlinkSync','accessSync','renameSync','createReadStream','createWriteStream',
+                  'mkdirSync','rmdirSync','unlinkSync','accessSync','renameSync',
                   'openSync','chmodSync','copyFileSync','linkSync','symlinkSync','readlinkSync','realpathSync', 'cpSync',
                   'watch','watchFile','unwatchFile']) {
   _wrapSync(m)
+}
+
+// createReadStream/createWriteStream: memfs's own ReadStream doesn't drive our
+// stream shim's pull model, so express.static / send (which pipe a read stream
+// to the response) produced empty bodies. The VFS is fully in-memory, so back
+// these with readFileSync/writeFileSync over our Readable/Writable instead.
+function _concat(parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0)
+  const out = new Uint8Array(total)
+  let off = 0
+  for (const p of parts) { out.set(p, off); off += p.length }
+  return out
+}
+
+_fs.createReadStream = (p: unknown, opts?: unknown): unknown => {
+  const path = toPath(p)
+  const rs = new (Readable as unknown as new () => Record<string, unknown>)() as Record<string, unknown> & {
+    emit(e: string, ...a: unknown[]): unknown; push(c: unknown): unknown
+  }
+  rs.path = path
+  rs.close = (cb?: () => void) => cb?.()
+  queueMicrotask(() => {
+    try {
+      let data = memfsInstance.readFileSync(path) as Uint8Array
+      const o = (opts && typeof opts === 'object') ? opts as { start?: number; end?: number; encoding?: string } : {}
+      if (typeof o.start === 'number' || typeof o.end === 'number') {
+        data = data.slice(o.start ?? 0, (o.end ?? data.length - 1) + 1)
+      }
+      rs.emit('open', 0)
+      rs.emit('ready')
+      rs.push(o.encoding ? new TextDecoder(o.encoding).decode(data) : data)
+      rs.push(null)
+    } catch (e) { rs.emit('error', e) }
+  })
+  return rs
+}
+
+_fs.createWriteStream = (p: unknown, opts?: unknown): unknown => {
+  const path = toPath(p)
+  const chunks: Uint8Array[] = []
+  const append = !!(opts && typeof opts === 'object' && (opts as { flags?: string }).flags?.includes('a'))
+  const ws = new (Writable as unknown as new () => Record<string, unknown>)() as Record<string, unknown> & {
+    emit(e: string, ...a: unknown[]): unknown
+  }
+  ws.path = path
+  ws.write = (chunk: string | Uint8Array, enc?: unknown, cb?: () => void): boolean => {
+    chunks.push(typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk)
+    ;(typeof enc === 'function' ? enc as () => void : cb)?.()
+    return true
+  }
+  ws.end = (chunk?: string | Uint8Array | (() => void), enc?: unknown, cb?: () => void): unknown => {
+    if (chunk && typeof chunk !== 'function') (ws.write as (c: unknown) => void)(chunk)
+    try {
+      let data = _concat(chunks)
+      if (append && memfsInstance.existsSync(path)) {
+        data = _concat([memfsInstance.readFileSync(path) as Uint8Array, data])
+      }
+      memfsInstance.writeFileSync(path, data)
+      ws.emit('finish'); ws.emit('close')
+    } catch (e) { ws.emit('error', e) }
+    ;(typeof chunk === 'function' ? chunk : typeof enc === 'function' ? enc as () => void : cb)?.()
+    return ws
+  }
+  queueMicrotask(() => { ws.emit('open', 0); ws.emit('ready') })
+  return ws
 }
 
 if (!_fs.constants) {
