@@ -60,6 +60,27 @@ export function hasEsmSyntax(code: string): boolean {
   }
 }
 
+/**
+ * Replace real `import.meta` references with `__import_meta` (the binding the
+ * loader's module wrapper injects), leaving occurrences inside strings/comments
+ * alone. A blind regex corrupts code-as-data — notably @vitejs/plugin-react's HMR
+ * wrapper templates, which contain `import.meta.hot` as a string and would break
+ * every served .tsx with "__import_meta is not defined". es-module-lexer reports
+ * import.meta as an import with d === -2 (ss..se spans "import.meta"). Falls back
+ * to the blind regex only if the lexer can't parse the source.
+ */
+export function replaceImportMeta(code: string): string {
+  try {
+    const [imports] = parseEsm(code)
+    const metas = imports.filter(i => i.d === -2).sort((a, b) => b.ss - a.ss)
+    let out = code
+    for (const m of metas) out = out.slice(0, m.ss) + '__import_meta' + out.slice(m.se)
+    return out
+  } catch {
+    return code.replace(/\bimport\.meta\b/g, '__import_meta')
+  }
+}
+
 /** Named exports of a CJS module, discovered statically. Empty on parse failure. */
 export function cjsNamedExports(code: string): string[] {
   try {

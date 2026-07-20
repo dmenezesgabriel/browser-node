@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { initLexers, rewriteDynamicImports, cjsNamedExports, hasEsmSyntax } from '../src/worker/lexer'
+import { initLexers, rewriteDynamicImports, cjsNamedExports, hasEsmSyntax, replaceImportMeta } from '../src/worker/lexer'
 
 beforeAll(async () => { await initLexers() })
 
@@ -108,5 +108,22 @@ describe('hasEsmSyntax', () => {
 
   it('does not count a dynamic import() as ESM', () => {
     expect(hasEsmSyntax(`const p = import('./x'); module.exports = {}`)).toBe(false)
+  })
+})
+
+describe('replaceImportMeta', () => {
+  it('replaces a real import.meta reference', () => {
+    expect(replaceImportMeta('const u = import.meta.url')).toBe('const u = __import_meta.url')
+  })
+
+  it('does NOT touch import.meta inside string/template literals (plugin-react HMR template)', () => {
+    // @vitejs/plugin-react stores its HMR wrapper as a code-as-data string.
+    const code = 'const refreshFooter = `if (import.meta.hot) { RefreshRuntime.__hmr_import(import.meta.url); }`'
+    expect(replaceImportMeta(code)).toBe(code)
+  })
+
+  it('replaces real import.meta but leaves a string occurrence alone in the same file', () => {
+    const code = 'const hint = "use import.meta.env"; const real = import.meta.env'
+    expect(replaceImportMeta(code)).toBe('const hint = "use import.meta.env"; const real = __import_meta.env')
   })
 })

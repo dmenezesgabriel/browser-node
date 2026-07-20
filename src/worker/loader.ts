@@ -3,7 +3,7 @@ import { shimMap } from './shims/index'
 import { path } from './shims/path'
 import { ExitSignal } from './shims/process'
 import { trace, isTraceEnabled } from './log'
-import { initLexers, rewriteDynamicImports } from './lexer'
+import { initLexers, rewriteDynamicImports, replaceImportMeta } from './lexer'
 import { resolveModule, resolveModuleInVfs, VFS_FIRST_SHIMS } from './resolve'
 // Re-exported so existing importers (index.ts, process-worker.ts, tests) keep
 // getting resolution from the loader's public API.
@@ -356,8 +356,11 @@ function executeModule(filePath: string, fromDir: string): { exports: unknown } 
       }
     }
 
-    // Replace import.meta references safely by mapping to injected __import_meta
-    source = source.replace(/\bimport\.meta\b/g, '__import_meta');
+    // Map real import.meta references to the injected __import_meta binding.
+    // Uses es-module-lexer (not a blind regex) so import.meta inside string/
+    // template literals is left intact — e.g. @vitejs/plugin-react's HMR wrapper
+    // templates, whose corruption previously broke every served .tsx.
+    source = replaceImportMeta(source);
 
     // Drop const/let redeclarations of runtime-injected CJS globals
     source = source.replace(/\b(const|let)\s+(__dirname|__filename|require)\s*=/g, '$2 =');
@@ -473,12 +476,11 @@ ${src}${epilogue}
     if (e?.name === 'SyntaxError') {
       // Retry with basic regex fallback for edge cases Sucrase can't handle
       try {
-        const fallback = source
+        const fallback = replaceImportMeta(source
           .replace(/^import[\s{*"'`].*?$/gm, '')
           .replace(/^export\s/gm, '')
-          .replace(/\bimport\.meta\b/g, '__import_meta')
           .replace(/exports\.'([^']+)'/g, "exports['$1']")
-          .replace(/exports\.\s+default\b/g, 'exports.default')
+          .replace(/exports\.\s+default\b/g, 'exports.default'))
         execSource(fallback)
         return mod
       } catch {}
