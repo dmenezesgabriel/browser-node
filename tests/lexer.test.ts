@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { initLexers, rewriteDynamicImports, cjsNamedExports } from '../src/worker/lexer'
+import { initLexers, rewriteDynamicImports, cjsNamedExports, hasEsmSyntax } from '../src/worker/lexer'
 
 beforeAll(async () => { await initLexers() })
 
@@ -85,5 +85,28 @@ describe('cjsNamedExports', () => {
 
   it('returns empty for a module with no static exports', () => {
     expect(cjsNamedExports(`const x = 1; doSomething(x)`)).toEqual([])
+  })
+})
+
+describe('hasEsmSyntax', () => {
+  it('detects real static import/export statements', () => {
+    expect(hasEsmSyntax(`import x from 'a'`)).toBe(true)
+    expect(hasEsmSyntax(`export const y = 1`)).toBe(true)
+    expect(hasEsmSyntax(`const u = import.meta.url`)).toBe(true)
+  })
+
+  it('is false for CJS even when "export"/"import" appear in strings (react.development.js case)', () => {
+    // The old regex /\bexport\s/ matched these strings and wrongly skipped CJS
+    // conversion, serving raw CJS that crashed with "exports is not defined".
+    const cjs = `'use strict';
+      var msg = "You likely forgot to export your component from the file";
+      var hint = 'mixed up default and named imports.';
+      exports.Foo = function () {};
+      module.exports = exports;`
+    expect(hasEsmSyntax(cjs)).toBe(false)
+  })
+
+  it('does not count a dynamic import() as ESM', () => {
+    expect(hasEsmSyntax(`const p = import('./x'); module.exports = {}`)).toBe(false)
   })
 })

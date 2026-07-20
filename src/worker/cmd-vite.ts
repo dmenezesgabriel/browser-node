@@ -5,7 +5,7 @@
 // context object rather than shared module-level mutable state.
 import { isFileInVfs } from './vfs'
 import { path as pathMod } from './shims/path'
-import { cjsNamedExports } from './lexer'
+import { cjsNamedExports, hasEsmSyntax } from './lexer'
 import { trace } from './log'
 
 type RequireFn = (id: string, fromDir: string) => unknown
@@ -37,8 +37,11 @@ function cjsToEsmPlugin(viteRoot: string, requireFn: RequireFn) {
     transform(code: string, id: string) {
       // Only transform files in node_modules
       if (!id.includes('/node_modules/')) return null
-      // Skip files that are already ESM
-      if (/\bimport[\s{*"'`]/m.test(code) || /\bexport\s/m.test(code) || /\bimport\.meta\b/.test(code)) return null
+      // Skip files that are already ESM. Use es-module-lexer (not a regex) so
+      // the words import/export inside strings/comments don't cause false
+      // positives — react.development.js has "…forgot to export your component…"
+      // error strings that the old regex matched, leaving it served as raw CJS.
+      if (hasEsmSyntax(code)) return null
       // Only transform files that use CJS patterns (including Object.defineProperty(exports, ...))
       const hasCjsPattern = /\b(module\.exports|exports\.\w+\s*=|exports\[|\bexports\b)/m.test(code) ||
         /\brequire\s*\(/m.test(code)
@@ -189,7 +192,11 @@ export async function cmdVite(args: string[], ctx: ViteCmdContext): Promise<numb
     stdout(`Starting Vite dev server in \x1b[36m${root}\x1b[0m on port \x1b[33m${port}\x1b[0m...\n`)
     const server = await createServer({
       root,
-      server: { port },
+      // allowedHosts: the SW-proxied preview request carries no Host header (the
+      // browser Fetch API forbids it), so Vite's hostCheckMiddleware would 403.
+      // We are a trusted same-browser proxy inside a Worker VFS — no rebinding
+      // surface — so disabling the check is correct, not a workaround.
+      server: { port, allowedHosts: true },
       logLevel: 'info',
       optimizeDeps: { noDiscovery: true },
       plugins: [cjsToEsmPlugin(root, requireFn)],

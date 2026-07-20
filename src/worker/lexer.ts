@@ -42,6 +42,24 @@ export function rewriteDynamicImports(code: string): string {
   return out
 }
 
+/**
+ * True if the source has real ESM syntax — a static import/export statement or
+ * `import.meta` — as opposed to the words "import"/"export" appearing in strings
+ * or comments (e.g. react.development.js's error messages). A dynamic `import()`
+ * alone does NOT count (CJS may use it). Used to decide whether a node_modules
+ * file needs CJS→ESM conversion. Falls back to true (leave as-is) on parse error.
+ */
+export function hasEsmSyntax(code: string): boolean {
+  try {
+    const [imports, exports] = parseEsm(code)
+    if (exports.length > 0) return true
+    // d === -1: static import statement; d === -2: import.meta. d > -1: dynamic.
+    return imports.some(i => i.d === -1 || i.d === -2)
+  } catch {
+    return true
+  }
+}
+
 /** Named exports of a CJS module, discovered statically. Empty on parse failure. */
 export function cjsNamedExports(code: string): string[] {
   try {
