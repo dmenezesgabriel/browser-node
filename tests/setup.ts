@@ -3,11 +3,21 @@
  * Vitest runs in Node.js, so we need to polyfill the browser/worker context.
  */
 
+// Snapshot the real Node env before any worker shim replaces globalThis.process
+// (shims/process.ts installs itself as the process global on import).
+;(globalThis as unknown as Record<string, unknown>).hostEnv = { ...process.env }
+
 // --- self (WorkerGlobalScope) ---
 const postMessageLog: unknown[] = []
 ;(globalThis as unknown as Record<string, unknown>).self = globalThis
 ;(globalThis as unknown as Record<string, unknown>).postMessageLog = postMessageLog
 globalThis.postMessage = (msg: unknown) => { postMessageLog.push(msg) }
+// Worker-scope message listeners (shims/ws.ts registers one at import time);
+// vitest's node environment lacks EventTarget methods on globalThis.
+if (typeof globalThis.addEventListener !== 'function') {
+  ;(globalThis as unknown as Record<string, unknown>).addEventListener = () => {}
+  ;(globalThis as unknown as Record<string, unknown>).removeEventListener = () => {}
+}
 
 // --- Web Crypto (Node 22 already has it on globalThis, but guard anyway) ---
 if (!globalThis.crypto?.subtle) {
