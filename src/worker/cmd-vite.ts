@@ -192,11 +192,21 @@ export async function cmdVite(args: string[], ctx: ViteCmdContext): Promise<numb
     stdout(`Starting Vite dev server in \x1b[36m${root}\x1b[0m on port \x1b[33m${port}\x1b[0m...\n`)
     const server = await createServer({
       root,
+      // No base: the SW strips the /_proxy/<port>/ prefix before forwarding, so
+      // Vite serves at '/' as normal. The preview iframe does a *real* navigation
+      // to /_proxy/<port>/, which makes the SW map the iframe's clientId → port
+      // on document load, so every unprefixed module request (/@vite/client,
+      // /node_modules/…, /src/…) routes reliably by clientId. (Setting base to
+      // the proxy prefix instead conflicts with the SW's strip — Vite then 404s
+      // expecting the prefix in the request; see vite#19219.)
       // allowedHosts: the SW-proxied preview request carries no Host header (the
       // browser Fetch API forbids it), so Vite's hostCheckMiddleware would 403.
       // We are a trusted same-browser proxy inside a Worker VFS — no rebinding
       // surface — so disabling the check is correct, not a workaround.
-      server: { port, allowedHosts: true },
+      // hmr:false: render-first — the HMR WebSocket can't reach the in-worker
+      // server; the app renders, edits need a manual preview refresh. (A
+      // postMessage HMR transport is a documented follow-up.)
+      server: { port, allowedHosts: true, hmr: false },
       logLevel: 'info',
       optimizeDeps: { noDiscovery: true },
       plugins: [cjsToEsmPlugin(root, requireFn)],
