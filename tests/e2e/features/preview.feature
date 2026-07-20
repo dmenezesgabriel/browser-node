@@ -34,9 +34,6 @@ Feature: Example apps render in the preview tab
     And I open the preview
     Then the preview should render "Fastify Todos"
 
-  # react/vue Vite dev server boots and serves modules, but the full in-iframe
-  # client render has remaining issues (see plan) — tracked, run with --profile wip
-  @wip
   Scenario: react-todo renders its UI in the preview
     When I run terminal command "cd /examples/react-todo"
     And I run terminal command "npm install" with timeout 300s
@@ -44,7 +41,6 @@ Feature: Example apps render in the preview tab
     And I open the preview
     Then the preview should render "React Todos"
 
-  @wip
   Scenario: vue-todo renders its UI in the preview
     When I run terminal command "cd /examples/vue-todo"
     And I run terminal command "npm install" with timeout 300s
