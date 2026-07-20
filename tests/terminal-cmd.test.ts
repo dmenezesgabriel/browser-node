@@ -14,11 +14,11 @@ vi.mock('../src/worker/vfs', () => ({
 }))
 
 vi.mock('../src/worker/loader', () => ({
-  clearModuleCache: vi.fn(),
+  resetForNewRun: vi.fn(),
 }))
 
 import { runCommand, getCwd, bindTerminalDeps } from '../src/worker/terminal-cmd'
-import { clearModuleCache } from '../src/worker/loader'
+import { resetForNewRun } from '../src/worker/loader'
 
 function getLog(): Array<{ type: string; text?: string }> {
   return (globalThis as any).postMessageLog as Array<{ type: string; text?: string }>
@@ -51,7 +51,7 @@ beforeEach(async () => {
   clearLog()
   await runCommand('cd /')
   clearLog()
-  vi.mocked(clearModuleCache).mockClear()
+  vi.mocked(resetForNewRun).mockClear()
 })
 
 describe('empty / whitespace input', () => {
@@ -518,12 +518,12 @@ describe('node command', () => {
     expect(getStderr()).toContain('runtime not ready')
   })
 
-  it('calls clearModuleCache before running', async () => {
+  it('resets the module cache before running', async () => {
     mockFs.writeFileSync('/tmp/script.js', '')
     const mockRequire = vi.fn()
     bindTerminalDeps(mockRequire as any, null as any)
     await runCommand('node /tmp/script.js')
-    expect(clearModuleCache).toHaveBeenCalled()
+    expect(resetForNewRun).toHaveBeenCalled()
     bindTerminalDeps(null as any, null as any)
   })
 
@@ -533,6 +533,42 @@ describe('node command', () => {
     bindTerminalDeps(mockRequire as any, null as any)
     await runCommand('node /tmp/hello.js')
     expect(mockRequire).toHaveBeenCalledWith('/tmp/hello.js', '/tmp')
+    bindTerminalDeps(null as any, null as any)
+  })
+})
+
+describe('process.exit semantics', () => {
+  it('node file exits with the ExitSignal code and no error output', async () => {
+    const { ExitSignal } = await import('../src/worker/shims/process')
+    mockFs.writeFileSync('/tmp/exit3.js', 'process.exit(3)')
+    const exitingRequire = vi.fn(() => { throw new ExitSignal(3) })
+    bindTerminalDeps(exitingRequire as any, null as any)
+    clearLog()
+    const code = await runCommand('node /tmp/exit3.js')
+    expect(code).toBe(3)
+    expect(getStderr()).toBe('')
+    bindTerminalDeps(null as any, null as any)
+  })
+
+  it('node -e exits with the ExitSignal code and no error output', async () => {
+    const { ExitSignal } = await import('../src/worker/shims/process')
+    const exitingRequire = vi.fn(() => { throw new ExitSignal(2) })
+    bindTerminalDeps(exitingRequire as any, null as any)
+    clearLog()
+    const code = await runCommand('node -e "process.exit(2)"')
+    expect(code).toBe(2)
+    expect(getStderr()).toBe('')
+    bindTerminalDeps(null as any, null as any)
+  })
+
+  it('honors process.exitCode set by the script on normal completion', async () => {
+    const { processShimExport } = await import('../src/worker/shims/process')
+    mockFs.writeFileSync('/tmp/setcode.js', 'process.exitCode = 2')
+    const settingRequire = vi.fn(() => { processShimExport.exitCode = 2 })
+    bindTerminalDeps(settingRequire as any, null as any)
+    const code = await runCommand('node /tmp/setcode.js')
+    expect(code).toBe(2)
+    processShimExport.exitCode = undefined
     bindTerminalDeps(null as any, null as any)
   })
 })

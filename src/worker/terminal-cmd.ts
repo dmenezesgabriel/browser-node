@@ -1,19 +1,20 @@
-import { memfsInstance, existsInVfs, isFileInVfs, writeFileToVfs } from './vfs'
+import { memfsInstance, existsInVfs, writeFileToVfs } from './vfs'
 import { path as pathMod } from './shims/path'
-import { process as proc, setCwdForProcess } from './shims/process'
+import { process as proc, setCwdForProcess, ExitSignal } from './shims/process'
+import { cmdVite } from './cmd-vite'
 
 type RequireFn = (id: string, fromDir: string) => unknown
 type InstallFn  = (packages: Record<string, string>, rootNmDir?: string) => Promise<void>
 
 let _require: RequireFn | null = null
 let _install: InstallFn | null = null
-let _clearModuleCache: (() => void) | null = null
-async function clearModuleCacheLazy(): Promise<void> {
-  if (!_clearModuleCache) {
+let _resetForNewRun: (() => void) | null = null
+async function resetModuleCacheLazy(): Promise<void> {
+  if (!_resetForNewRun) {
     const loader = await import('./loader')
-    _clearModuleCache = loader.clearModuleCache
+    _resetForNewRun = loader.resetForNewRun
   }
-  _clearModuleCache()
+  _resetForNewRun()
 }
 
 export function bindTerminalDeps(req: RequireFn, inst: InstallFn) {
@@ -305,7 +306,7 @@ export async function runCommand(cmdline: string): Promise<number> {
       case 'node':               code = await cmdNode(args); break
       case 'npm':                code = await cmdNpm(args); break
       case 'npx':                code = await cmdNpx(args); break
-      case 'vite':               code = await cmdVite(args); break
+      case 'vite':               code = await cmdVite(args, { require: _require, stdout, stderr, resolve, cwd: _cwd }); break
       case 'which':              code = cmdWhich(args); break
       case 'env':                code = cmdEnv(); break
       case 'export':             code = cmdExport(args); break
@@ -565,16 +566,22 @@ async function cmdNode(args: string[]): Promise<number> {
     proc.argv = ['node', ...args.map(a => resolve(a))]
   }
 
+  // Fresh-process semantics: each `node …` run starts with a clean exit code.
+  if (proc) proc.exitCode = undefined
+
   if (args[0] === '-e' || args[0] === '--eval') {
     if (proc) proc.argv = ['node', '-e']
     const code = args.slice(1).join(' ')
     if (!code) { stderr('node: -e requires an expression\n'); return 1 }
     if (!_require) { stderr('node: runtime not ready\n'); return 1 }
-    await clearModuleCacheLazy()
+    await resetModuleCacheLazy()
     const tmpPath = _cwd + '/_eval_' + Date.now() + '.js'
     writeFileToVfs(tmpPath, code)
-    try { _require(tmpPath, _cwd); return 0 }
-    catch (e) { stderr(`node: ${(e as Error).message}\n`); return 1 }
+    try { _require(tmpPath, _cwd); return Number(proc?.exitCode ?? 0) }
+    catch (e) {
+      if (e instanceof ExitSignal) return e.code
+      stderr(`node: ${(e as Error).message}\n`); return 1
+    }
   }
   const file = resolve(args[0])
   if (proc) {
@@ -583,11 +590,14 @@ async function cmdNode(args: string[]): Promise<number> {
   try {
     if (!existsInVfs(file)) { stderr(`node: ${args[0]}: No such file or directory\n`); return 1 }
     if (!_require) { stderr('node: runtime not ready\n'); return 1 }
-    await clearModuleCacheLazy()
+    await resetModuleCacheLazy()
     const fromDir = normalize(file.split('/').slice(0, -1).join('/') || '/')
     _require(file, fromDir)
-    return 0
-  } catch (e) { stderr(`node: ${(e as Error).message}\n`); return 1 }
+    return Number(proc?.exitCode ?? 0)
+  } catch (e) {
+    if (e instanceof ExitSignal) return e.code
+    stderr(`node: ${(e as Error).message}\n`); return 1
+  }
 }
 
 // ── npm ──────────────────────────────────────────────────────────────────────
@@ -714,190 +724,6 @@ async function cmdNpx(args: string[]): Promise<number> {
   return await cmdNode([binFile, ...args.slice(pkgIndex + 1)])
 }
 
-// ── vite ─────────────────────────────────────────────────────────────────────
-
-/**
- * Vite plugin: CJS-to-ESM interop
- * When Vite serves a CJS module from node_modules, this plugin intercepts it
- * and generates a synthetic ESM module that re-exports the CJS module's properties.
- *
- * This is the browser-node equivalent of Vite's optimizeDeps pre-bundling, which
- * normally uses esbuild/rolldown to convert CJS to ESM. Since those tools can't
- * run in-browser, we use our own requireSync loader to execute the CJS module
- * server-side and produce a clean ESM facade.
- *
- * This is completely transparent to the developer — no project modifications needed.
- */
-function cjsToEsmPlugin(viteRoot: string) {
-  return {
-    name: 'browser-node-cjs-to-esm',
-    enforce: 'pre' as const,
-    transform(code: string, id: string) {
-      // Only transform files in node_modules
-      if (!id.includes('/node_modules/')) return null
-      // Skip files that are already ESM
-      if (/\bimport[\s{*"'`]/m.test(code) || /\bexport\s/m.test(code) || /\bimport\.meta\b/.test(code)) return null
-      // Only transform files that use CJS patterns (including Object.defineProperty(exports, ...))
-      const hasCjsPattern = /\b(module\.exports|exports\.\w+\s*=|exports\[|\bexports\b)/m.test(code) ||
-        /\brequire\s*\(/m.test(code)
-      if (!hasCjsPattern) return null
-
-      if (!_require) return null
-
-      // Execute the CJS module server-side using our loader to discover its exports
-      try {
-        // Resolve the VFS path: Vite passes URL paths like /node_modules/rxjs/...
-        // but packages are installed at project-specific paths (e.g. /examples/.../node_modules/...)
-        let resolvedId = id
-        if (!isFileInVfs(resolvedId) && resolvedId.startsWith('/') && viteRoot) {
-          const candidate = pathMod.join(viteRoot, resolvedId.slice(1))
-          if (isFileInVfs(candidate)) {
-            resolvedId = candidate
-          }
-        }
-        const mod = _require(resolvedId, '/') as Record<string, unknown>
-        if (!mod || typeof mod !== 'object') return null
-
-        const keys = Object.keys(mod).filter(k =>
-          k !== 'default' && k !== '__esModule' && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k)
-        )
-
-        // Generate synthetic ESM: serialize each export value by reference
-        // We store the executed module in a global registry and reference it from the ESM facade
-        const registryKey = `__cjs_registry_${id.replace(/[^a-zA-Z0-9]/g, '_')}`
-        const lines: string[] = [
-          `// CJS-to-ESM interop (browser-node runtime)`,
-          `// Original: ${id}`,
-          ``,
-        ]
-
-        // For primitive values, inline them; for objects/functions, we need to serialize or
-        // provide them through the transform. Since this runs in Vite's transform (server-side),
-        // we generate code that the browser will execute. We need the browser to get the actual
-        // values, so we re-execute the CJS in a browser-compatible way.
-        //
-        // Strategy: generate an ESM module that uses a self-executing function to set up
-        // the CJS environment (module, exports, require) and then re-exports everything.
-        // The key difference from our previous approach: we provide a WORKING require()
-        // by converting all require() calls to ESM imports at the top of the file.
-
-        // Step 1: Find all require() calls in the source and extract the specifiers
-        const requireCalls = new Set<string>()
-        const requireRegex = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g
-        let match
-        while ((match = requireRegex.exec(code)) !== null) {
-          requireCalls.add(match[1])
-        }
-
-        // Step 2: Generate import statements for each required module
-        const imports: string[] = []
-        const requireMap: Record<string, string> = {}
-        let importIdx = 0
-        for (const spec of requireCalls) {
-          const varName = `__req_${importIdx++}`
-          imports.push(`import * as ${varName} from "${spec}";`)
-          requireMap[spec] = varName
-        }
-
-        // Step 3: Build the CJS wrapper with a working require function
-        const requireEntries = Object.entries(requireMap)
-          .map(([spec, varName]) => `    "${spec}": ${varName}`)
-          .join(',\n')
-        
-        lines.push(...imports)
-        lines.push(``)
-        lines.push(`const __cjs_module = { exports: {} };`)
-        lines.push(`const __cjs_require = (function() {`)
-        lines.push(`  const __req_map = {`)
-        lines.push(requireEntries)
-        lines.push(`  };`)
-        lines.push(`  return function require(id) {`)
-        lines.push(`    if (id in __req_map) {`)
-        lines.push(`      const ns = __req_map[id];`)
-        lines.push(`      // Unwrap ESM namespace: if our CJS-to-ESM transform wrapped it, .default has module.exports`)
-        lines.push(`      return ns && ns.default !== undefined ? ns.default : ns;`)
-        lines.push(`    }`)
-        lines.push(`    if (typeof globalThis._requireSync === "function") {`)
-        lines.push(`      const dir = ${JSON.stringify(resolvedId.split('/').slice(0, -1).join('/') || '/')};`)
-        lines.push(`      try {`)
-        lines.push(`        return globalThis._requireSync(id, dir);`)
-        lines.push(`      } catch (err) {`)
-        lines.push(`        throw new Error("Cannot find module '" + id + "' from '" + dir + "': " + err.message);`)
-        lines.push(`      }`)
-        lines.push(`    }`)
-        lines.push(`    throw new Error("Cannot find module '" + id + "'");`)
-        lines.push(`  };`)
-        lines.push(`})();`)
-        lines.push(`const __cjs_filename = ${JSON.stringify(resolvedId)};`)
-        lines.push(`const __cjs_dirname = ${JSON.stringify(resolvedId.split('/').slice(0, -1).join('/') || '/')};`)
-        lines.push(`(function(module, exports, require, __filename, __dirname) {`)
-        lines.push(code)
-        lines.push(`})(__cjs_module, __cjs_module.exports, __cjs_require, __cjs_filename, __cjs_dirname);`)
-        lines.push(``)
-        lines.push(`const __cjs_result = __cjs_module.exports;`)
-        lines.push(`export default __cjs_result;`)
-
-        // Step 4: Add named exports for all discovered keys
-        if (keys.length > 0) {
-          lines.push(``)
-          for (const k of keys) {
-            lines.push(`export const ${k} = __cjs_result["${k}"];`)
-          }
-        }
-
-        return { code: lines.join('\n'), map: null }
-      } catch (e) {
-        // If execution fails, return null and let Vite handle it
-        console.log(`[cjs-to-esm] Failed to transform ${id}: ${(e as Error).message}`)
-        return null
-      }
-    }
-  }
-}
-
-async function cmdVite(args: string[]): Promise<number> {
-  if (!_require) { stderr('vite: runtime not ready\n'); return 1 }
-
-  // Ensure vite is installed
-  let vite: Record<string, unknown>
-  try { vite = _require('vite', _cwd) as Record<string, unknown> }
-  catch (e: any) { stderr('vite error: ' + (e.stack || e.message) + '\n'); return 1 }
-
-  const sub = args[0]
-  if (sub === 'build') {
-    stdout('vite: build is not supported in browser environment\n')
-    return 1
-  }
-
-  // Default: dev server
-  let port = 5173
-  let rootArg = '.'
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--port' && i + 1 < args.length) {
-      port = parseInt(args[i + 1], 10)
-      i++
-    } else if (args[i].startsWith('--port=')) {
-      port = parseInt(args[i].split('=')[1], 10)
-    } else if (!args[i].startsWith('-')) {
-      rootArg = args[i]
-    }
-  }
-  const root = resolve(rootArg)
-  try {
-    const { createServer } = vite as { createServer: (opts: unknown) => Promise<{ listen(): Promise<void> }> }
-    stdout(`Starting Vite dev server in \x1b[36m${root}\x1b[0m on port \x1b[33m${port}\x1b[0m...\n`)
-    const server = await createServer({
-      root,
-      server: { port },
-      logLevel: 'info',
-      optimizeDeps: { noDiscovery: true },
-      plugins: [cjsToEsmPlugin(root)],
-    })
-    await server.listen()
-    stdout(`\x1b[32m✓\x1b[0m Vite dev server running on \x1b[36mhttp://localhost:${port}\x1b[0m\n`)
-    return 0
-  } catch (e) { stderr(`vite: ${(e as Error).message}\n`); return 1 }
-}
 
 // ── which ────────────────────────────────────────────────────────────────────
 
