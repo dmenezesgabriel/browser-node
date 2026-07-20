@@ -2,6 +2,7 @@
 // Vite uses sirv for serving files from the public directory.
 import { memfsInstance, existsInVfs, isFileInVfs } from '../vfs'
 import { path } from './path'
+import { trace } from '../log'
 
 const MIME: Record<string, string> = {
   html: 'text/html; charset=utf-8',
@@ -44,7 +45,7 @@ export function sirv(
     const fsPath = path.join(dir, urlPath)
 
     let resolved = fsPath
-    console.log(`[SIRV] urlPath: ${urlPath}, dir: ${dir}, resolved: ${resolved}, exists: ${isFileInVfs(resolved)}`);
+    trace('sirv', `urlPath: ${urlPath}, dir: ${dir}, resolved: ${resolved}, exists: ${isFileInVfs(resolved)}`);
     if (!isFileInVfs(resolved)) {
       // Try index.html
       const idx = path.join(fsPath, 'index.html')

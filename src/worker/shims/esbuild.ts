@@ -2,6 +2,7 @@
 // so Vite's transform/bundling calls go through the WASM build instead of native binary.
 import { initBuild } from '../build'
 import * as esbuildWasm from 'esbuild-wasm/esm/browser.js'
+import { trace } from '../log'
 
 export const version: string = (esbuildWasm as unknown as Record<string, unknown>).version as string ?? '0.21.5'
 
@@ -17,7 +18,7 @@ import { resolveModule } from '../loader'
 
 function injectVfsPlugin(options?: Record<string, unknown>) {
   const opts = (options || {}) as Record<string, any>
-  console.log('[esbuild] injectVfsPlugin called with:', JSON.stringify(options))
+  trace('esbuild', `injectVfsPlugin: ${JSON.stringify(options)}`)
   if (!opts.plugins) opts.plugins = []
   if (!opts.absWorkingDir) opts.absWorkingDir = '/'
   
@@ -58,7 +59,7 @@ function injectVfsPlugin(options?: Record<string, unknown>) {
       build.onLoad({ filter: /.*/ }, (args: any) => {
         if (args.namespace !== 'file' && args.namespace !== '') return null;
         try {
-           console.log('[vfs-fallback] Loading:', args.path);
+           trace('esbuild', `vfs-fallback loading: ${args.path}`);
            const contents = memfsInstance.readFileSync(args.path)
            const ext = path.extname(args.path).toLowerCase()
            let loader = 'js'
@@ -69,7 +70,7 @@ function injectVfsPlugin(options?: Record<string, unknown>) {
            else if (ext === '.css') loader = 'css'
            return { contents: contents, loader }
         } catch(e) {
-           console.log('[vfs-fallback] Load failed:', args.path, e);
+           trace('esbuild', `vfs-fallback load failed: ${args.path} ${e}`);
            return { errors: [{ text: (e as Error).message }] }
         }
       })
@@ -83,7 +84,7 @@ export async function transform(
   options?: Record<string, unknown>
 ): Promise<{ code: string; map: string; warnings: unknown[] }> {
   await ensureInit()
-  console.log('[esbuild] transform called with options:', options);
+  trace('esbuild', `transform: ${JSON.stringify(options)}`);
   const result = await esbuildWasm.transform(input, options as Parameters<typeof esbuildWasm.transform>[1])
   return result
 }
@@ -92,7 +93,7 @@ export async function build(
   options?: Record<string, unknown>
 ): Promise<{ errors: unknown[]; warnings: unknown[]; outputFiles?: unknown[]; metafile?: unknown }> {
   await ensureInit()
-  console.log('[esbuild] build called with options:', JSON.stringify(options, null, 2));
+  trace('esbuild', `build: ${JSON.stringify(options)}`);
   try {
     const result = await esbuildWasm.build(injectVfsPlugin(options) as Parameters<typeof esbuildWasm.build>[0])
     return result as unknown as { errors: unknown[]; warnings: unknown[]; outputFiles?: unknown[]; metafile?: unknown }
@@ -104,7 +105,7 @@ export async function build(
 
 export async function context(options?: Record<string, unknown>) {
   await ensureInit()
-  console.log('[esbuild] context called with options:', JSON.stringify(options, null, 2));
+  trace('esbuild', `context: ${JSON.stringify(options)}`);
   const opts = injectVfsPlugin(options)
   if (typeof (esbuildWasm as unknown as Record<string, unknown>).context === 'function') {
     try {

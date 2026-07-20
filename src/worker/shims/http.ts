@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer'
 import { EventEmitter } from './events'
 import { Readable, Writable } from './stream'
+import { trace } from '../log'
 
 // Registry of servers keyed by port, so the Worker can route SW requests
 const servers = new Map<number, HttpServer>()
@@ -312,7 +313,7 @@ export class ServerResponse extends Writable {
 
   end(body?: string | Uint8Array | null, _enc?: string, cb?: () => void): this {
     if (this.writableEnded) return this
-    console.log(`[http] res.end() called for status ${this.statusCode}`)
+    trace('http', `res.end() called for status ${this.statusCode}`)
     this.writableEnded = true
     this.finished = true
     this.headersSent = true
@@ -337,10 +338,10 @@ export class ServerResponse extends Writable {
       hdrs[k.toLowerCase()] = Array.isArray(v) ? v.join(', ') : String(v)
     }
     if (!hdrs['content-type']) {
-      console.log(`[http] Warning: no content-type for ${this.req.url}, defaulting to text/html`)
+      trace('http', `Warning: no content-type for ${this.req.url}, defaulting to text/html`)
       hdrs['content-type'] = 'text/html; charset=utf-8'
     } else {
-      console.log(`[http] Sending ${this.req.url} with type ${hdrs['content-type']}`)
+      trace('http', `Sending ${this.req.url} with type ${hdrs['content-type']}`)
     }
 
     this._replyPort?.postMessage({
@@ -373,11 +374,11 @@ export class HttpServer extends EventEmitter {
     body?: ArrayBuffer
     replyPort: MessagePort
   }) {
-    console.log(`[http] Incoming request: ${msg.method} ${msg.url} (Accept: ${msg.headers['accept']})`)
+    trace('http', `Incoming request: ${msg.method} ${msg.url} (Accept: ${msg.headers['accept']})`)
     const req = new IncomingMessage(msg)
     const res = new ServerResponse(req, msg.replyPort)
     const onErr = (e: unknown) => {
-      console.log(`[http] Handler error for ${msg.url}: ${(e as Error).message}`)
+      trace('http', `Handler error for ${msg.url}: ${(e as Error).message}`)
       if (!res.writableEnded) {
         res.statusCode = 500
         res.end(`Internal Error: ${(e as Error).stack}`)
@@ -385,24 +386,24 @@ export class HttpServer extends EventEmitter {
     }
     try {
       if (!this._handler) {
-        console.log(`[http] No handler for ${msg.url}`)
+        trace('http', `No handler for ${msg.url}`)
         res.statusCode = 404
         res.end('Not Found')
         return
       }
       const result = this._handler(req, res, (err?: any) => {
         if (err) {
-          console.log(`[http] next() called with err: ${err.message}`)
+          trace('http', `next() called with err: ${err.message}`)
           return onErr(err)
         }
         if (!res.writableEnded) {
-          console.log(`[http] next() called without err, ending response`)
+          trace('http', `next() called without err, ending response`)
           res.end()
         }
       })
       if (result && typeof (result as Promise<unknown>).catch === 'function') {
         (result as Promise<unknown>).catch((e: unknown) => {
-          console.log(`[http] Async handler rejection: ${(e as Error).message}`)
+          trace('http', `Async handler rejection: ${(e as Error).message}`)
           onErr(e)
         })
       }
@@ -412,7 +413,7 @@ export class HttpServer extends EventEmitter {
   }
 
   listen(port: number | { port?: number; host?: string; backlog?: number }, hostOrCb?: string | number | (() => void), _backlogOrCb?: number | (() => void), cb?: () => void): this {
-    console.log(`[http] listen called with arguments: port=${JSON.stringify(port)}, hostOrCb=${typeof hostOrCb}`)
+    trace('http', `listen called with arguments: port=${JSON.stringify(port)}, hostOrCb=${typeof hostOrCb}`)
     // Normalize arguments — same as Node.js net.Server.listen()
     let callback: (() => void) | undefined
     if (typeof port === 'object') {
