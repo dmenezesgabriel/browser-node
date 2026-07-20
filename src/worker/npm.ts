@@ -116,14 +116,31 @@ async function extractTarball(tarball: string, destDir: string) {
 
 type DepTree = Map<string, string> // name → resolved version
 
+/**
+ * Resolve the npm alias protocol: `"wrap-ansi-cjs": "npm:wrap-ansi@^7.0.0"`
+ * installs wrap-ansi under the name wrap-ansi-cjs. Splits the registry name we
+ * fetch from the directory name we install under. Non-alias specs pass through.
+ * Used by @fastify/static's dep tree (glob → @isaacs/cliui → wrap-ansi-cjs).
+ */
+export function parseNpmAlias(installName: string, spec: string): { fetchName: string; range: string } {
+  if (!spec.startsWith('npm:')) return { fetchName: installName, range: spec }
+  const rest = spec.slice(4)
+  const at = rest.lastIndexOf('@')
+  if (at > 0) return { fetchName: rest.slice(0, at), range: rest.slice(at + 1) || '*' }
+  return { fetchName: rest, range: '*' }
+}
+
 export async function install(
   packages: Record<string, string>,
   rootNmDir = '/node_modules'
 ): Promise<void> {
   log(`[npm] install called with ${JSON.stringify(packages)} in ${rootNmDir}`)
-  const queue: { name: string; range: string; dest: string }[] = Object.entries(packages).map(
-    ([name, range]) => ({ name, range, dest: rootNmDir })
-  )
+
+  const queue: { installName: string; fetchName: string; range: string; dest: string }[] =
+    Object.entries(packages).map(([installName, spec]) => {
+      const { fetchName, range } = parseNpmAlias(installName, spec)
+      return { installName, fetchName, range, dest: rootNmDir }
+    })
   const installed = new Set<string>()
 
   // Platform-specific native modules and packages shimmed at runtime — skip downloading.
@@ -144,22 +161,22 @@ export async function install(
   }
 
   while (queue.length) {
-    const { name, range, dest } = queue.shift()!
-    if (isNativePlatformPackage(name)) {
-      log(`npm  skipping   ${name} (native/shimmed)`)
+    const { installName, fetchName, range, dest } = queue.shift()!
+    if (isNativePlatformPackage(fetchName)) {
+      log(`npm  skipping   ${installName} (native/shimmed)`)
       continue
     }
     let meta: PackageMeta
-    try { meta = await fetchMeta(name) } catch (e) {
-      log(`npm  WARN  ${name}: ${(e as Error).message}`)
+    try { meta = await fetchMeta(fetchName) } catch (e) {
+      log(`npm  WARN  ${installName}: ${(e as Error).message}`)
       continue
     }
 
     const version = resolveVersion(meta, range)
-    const key = `${name}@${version}`
+    const key = `${installName}@${version}`
     if (installed.has(key)) continue
 
-    const pkgDir = path.join(dest, name)
+    const pkgDir = path.join(dest, installName)
     const pkgJsonPath = path.join(pkgDir, 'package.json')
 
     // If the dest slot already has a package.json, verify the version matches.
@@ -171,7 +188,7 @@ export async function install(
         if (existing.version !== version) continue
       } catch {}
     } else {
-      log(`npm  installing  ${name}@${version}`)
+      log(`npm  installing  ${installName}@${version}`)
       mkdirpSync(pkgDir)
       await extractTarball(meta.versions[version].dist.tarball, pkgDir)
     }
@@ -179,12 +196,15 @@ export async function install(
     installed.add(key)
 
     const deps = { ...meta.versions[version].dependencies, ...meta.versions[version].optionalDependencies }
-    for (const [depName, depRange] of Object.entries(deps)) {
+    for (const [depName, depSpec] of Object.entries(deps)) {
+      // depSpec may be an npm: alias — split the registry name from the range and
+      // install directory (depName).
+      const { fetchName: depFetch, range: depRange } = parseNpmAlias(depName, depSpec)
       // Resolve the best version for this dep (fetch is cached)
       let depMeta: PackageMeta | null = null
       let resolved: string | null = null
       try {
-        depMeta = await fetchMeta(depName)
+        depMeta = await fetchMeta(depFetch)
         resolved = resolveVersion(depMeta, depRange)
       } catch {}
 
@@ -200,7 +220,7 @@ export async function install(
         }
       } else if (depMeta && resolved) {
         // Not installed yet — check if a compatible version is already queued at root
-        const queuedAtRoot = queue.find(q => q.name === depName && q.dest === rootNmDir)
+        const queuedAtRoot = queue.find(q => q.installName === depName && q.dest === rootNmDir)
         if (queuedAtRoot) {
           try {
             const queuedVer = resolveVersion(depMeta, queuedAtRoot.range)
@@ -212,15 +232,15 @@ export async function install(
       if (rootWillSatisfy) {
         // Already at root with compatible version — still queue for transitive dep
         // discovery (extraction will be skipped, but deps will be processed).
-        if (!queue.some(q => q.name === depName && q.dest === rootNmDir)) {
-          queue.push({ name: depName, range: depRange, dest: rootNmDir })
+        if (!queue.some(q => q.installName === depName && q.dest === rootNmDir)) {
+          queue.push({ installName: depName, fetchName: depFetch, range: depRange, dest: rootNmDir })
         }
-      } else if (!existsInVfs(rootPkgJson) && !queue.some(q => q.name === depName && q.dest === rootNmDir)) {
+      } else if (!existsInVfs(rootPkgJson) && !queue.some(q => q.installName === depName && q.dest === rootNmDir)) {
         // Root is free — queue install at root (hoisting)
-        queue.push({ name: depName, range: depRange, dest: rootNmDir })
+        queue.push({ installName: depName, fetchName: depFetch, range: depRange, dest: rootNmDir })
       } else {
         // Root taken by incompatible version (installed or queued) — nest under this package
-        queue.push({ name: depName, range: depRange, dest: path.join(pkgDir, 'node_modules') })
+        queue.push({ installName: depName, fetchName: depFetch, range: depRange, dest: path.join(pkgDir, 'node_modules') })
       }
     }
   }

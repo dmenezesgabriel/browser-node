@@ -189,3 +189,22 @@ describe('npm registry fetch logic', () => {
     expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(tarballUrl)
   })
 })
+
+import { parseNpmAlias } from '../src/worker/npm'
+
+describe('npm alias protocol', () => {
+  it('splits npm:pkg@range into fetch name + range', () => {
+    expect(parseNpmAlias('wrap-ansi-cjs', 'npm:wrap-ansi@^7.0.0'))
+      .toEqual({ fetchName: 'wrap-ansi', range: '^7.0.0' })
+  })
+  it('handles a scoped aliased package', () => {
+    expect(parseNpmAlias('foo', 'npm:@scope/bar@^1.2.3'))
+      .toEqual({ fetchName: '@scope/bar', range: '^1.2.3' })
+  })
+  it('defaults range to * when the alias omits a version', () => {
+    expect(parseNpmAlias('foo', 'npm:bar')).toEqual({ fetchName: 'bar', range: '*' })
+  })
+  it('passes a normal semver spec through unchanged', () => {
+    expect(parseNpmAlias('lodash', '^4.17.0')).toEqual({ fetchName: 'lodash', range: '^4.17.0' })
+  })
+})
