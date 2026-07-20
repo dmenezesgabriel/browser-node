@@ -1,4 +1,6 @@
 'use strict'
+const fs = require('fs')
+const path = require('path')
 const fastify = require('fastify')
 
 let todos = []
@@ -6,6 +8,14 @@ let nextId = 1
 
 function buildApp() {
   const app = fastify({ logger: false })
+
+  // Serve the static UI (index.html at /) — the fastify equivalent of
+  // express.static('public') for this single-page app.
+  const indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+  app.get('/', async function (req, reply) {
+    reply.type('text/html')
+    return indexHtml
+  })
 
   app.get('/api/todos', async function () {
     return todos
