@@ -1,7 +1,7 @@
 // Cucumber v13 ESM config: default export is the profile config directly.
 // When loaded via import(), 'definitions.default' == this object, so
 // profile 'default' is found at definitions['default'] without extra nesting.
-export default {
+const base = {
   paths: [
     'tests/e2e/features/buffer_shim.feature',
     'tests/e2e/features/express.feature',
@@ -12,6 +12,7 @@ export default {
     'tests/e2e/features/vue.feature',
     'tests/e2e/features/vite.feature',
     'tests/e2e/features/terminal.feature',
+    'tests/e2e/features/persistence.feature',
     'tests/e2e/features/tutorial.feature',
     'tests/e2e/features/angular-tutorial.feature',
     'tests/e2e/features/ui.feature',
@@ -28,3 +29,8 @@ export default {
   ],
   timeout: 660000,
 }
+
+// Red-phase TDD scenarios are tagged @wip and excluded from the default run;
+// exercise them with: npx cucumber-js --config cucumber.config.mjs --profile wip
+export default { ...base, tags: 'not @wip' }
+export const wip = { ...base, tags: '@wip' }

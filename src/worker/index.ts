@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 // Bootstrap Node.js globals FIRST so packages that rely on them as globals find them.
 import * as _bufMod from 'buffer'
-import { process as _process } from './shims/process'
+import { process as _process, ExitSignal } from './shims/process'
 const _g = globalThis as unknown as Record<string, unknown>
 const _Buffer = _bufMod.Buffer
 // buffer npm package doesn't export MAX_STRING_LENGTH; pino/fastify need it
@@ -44,21 +44,34 @@ console.error = (...args: unknown[]) => self.postMessage({ type: 'stderr', text:
 console.debug = console.log
 
 self.addEventListener('unhandledrejection', (event) => {
+  // process.exit() from async callbacks: not an error — the runtime worker
+  // can't terminate itself (it hosts the whole environment), so just unwind.
+  if (event.reason instanceof ExitSignal) { event.preventDefault(); return }
   console.error('[worker:unhandledRejection]', event.reason?.message || event.reason)
   if (event.reason?.stack) console.error(event.reason.stack)
 })
 self.addEventListener('error', (event) => {
+  if (event.error instanceof ExitSignal) { event.preventDefault(); return }
   console.error('[worker:uncaughtException]', event.error?.message || event.error)
   if (event.error?.stack) console.error(event.error.stack)
 })
 
-import { preloadShims, requireSync, resolveModule, clearModuleCache, registerFileOverride, getSucraseTransform } from './loader'
+import { preloadShims, requireSync, resolveModule, resolveModuleInVfs, resetForNewRun, registerFileOverride, getSucraseTransform } from './loader'
+import { setTraceEnabled } from './log'
 import { bindRequireSync } from './shims/index'
 import { install } from './npm'
 import { writeFileToVfs, dumpVfs, memfsInstance, vol } from './vfs'
 import { getServer } from './shims/http'
 import { bindTerminalDeps, runCommand, getCwd } from './terminal-cmd'
 import { initExamples } from './examples'
+import { getOpfsRoot, hydrate, startMirror } from './persist'
+
+// Boot flags forwarded by the shell via the Worker `name` option (sync-available
+// as self.name — no message race). `fresh` disables OPFS persistence for a
+// clean-slate session (E2E isolation).
+const bootFlags: { fresh?: boolean } = (() => {
+  try { return JSON.parse(self.name || '{}') } catch { return {} }
+})()
 
 // Override Function constructor to support dynamic imports (bare specifiers) inside evaluated code
 const OriginalFunction = globalThis.Function
@@ -85,7 +98,7 @@ CustomFunction.prototype = OriginalFunction.prototype
 globalThis.Function = CustomFunction as any
 
 // Wire up createRequire in the node:module shim (can't import requireSync there — circular)
-bindRequireSync(requireSync, resolveModule)
+bindRequireSync(requireSync, resolveModule, resolveModuleInVfs)
 
 // Global dynamic import handler — routes through VFS-aware requireSync.
 // Used by source-level import() → __import_fn() replacement in loader.ts.
@@ -102,7 +115,14 @@ async function init() {
   await preloadShims()
   bindTerminalDeps(requireSync, install)
   _registerPostInstallOverrides()
-  initExamples()
+
+  // Restore a persisted workspace from OPFS, then mirror future changes. Seed the
+  // built-in examples only when there's nothing to restore (a fresh workspace).
+  // `fresh` skips persistence entirely.
+  const opfsRoot = bootFlags.fresh ? null : await getOpfsRoot()
+  const restored = opfsRoot ? await hydrate(memfsInstance as never, opfsRoot) : 0
+  if (restored === 0) initExamples()
+  if (opfsRoot) startMirror(memfsInstance as never, opfsRoot)
   try {
     const { initBuild } = await import('./build')
     await initBuild()
@@ -308,6 +328,11 @@ function _registerPostInstallOverrides() {
 self.addEventListener('message', async (e: MessageEvent) => {
   const { type, ...payload } = e.data ?? {}
 
+  if (type === 'set-debug') {
+    setTraceEnabled(Boolean(payload.enabled))
+    return
+  }
+
   if (type === 'register-server-port') {
     // Shell gives us a MessagePort per registered server; SW sends requests through it
     attachSwPort(payload.workerPort as MessagePort)
@@ -316,12 +341,14 @@ self.addEventListener('message', async (e: MessageEvent) => {
 
   if (type === 'run') {
     const { code, filename = '/app/index.js' } = payload
-    clearModuleCache()
+    resetForNewRun()
+    _process.exitCode = undefined
     log('\n')
     try {
       writeFileToVfs(filename, code)
       requireSync(filename, '/app')
     } catch (e) {
+      if (e instanceof ExitSignal) return
       err(`\n[error] ${e instanceof Error ? e.stack ?? e.message : String(e)}\n`)
     }
     return
@@ -374,6 +401,10 @@ self.addEventListener('message', async (e: MessageEvent) => {
       const exitCode = await runCommand(cmdline)
       self.postMessage({ type: 'terminal-done', exitCode, cwd: getCwd() })
     } catch (e) {
+      if (e instanceof ExitSignal) {
+        self.postMessage({ type: 'terminal-done', exitCode: e.code, cwd: getCwd() })
+        return
+      }
       err(`[terminal] ${(e as Error).message}\n`)
       self.postMessage({ type: 'terminal-done', exitCode: 1, cwd: getCwd() })
     }

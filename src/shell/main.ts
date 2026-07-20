@@ -7,8 +7,18 @@ import 'github-markdown-css/github-markdown.css'
 
 // ── Web Worker ────────────────────────────────────────────────────────────────
 
-const runtimeWorker = new Worker(new URL('../worker/index.ts', import.meta.url), { type: 'module' })
+// Forward boot flags via the Worker name (read synchronously as self.name in the
+// worker): ?fresh=1 disables OPFS persistence for a clean-slate session.
+const _bootParams = new URLSearchParams(location.search)
+const runtimeWorker = new Worker(new URL('../worker/index.ts', import.meta.url), {
+  type: 'module',
+  name: JSON.stringify({ fresh: _bootParams.has('fresh') }),
+})
 ;(window as any).__worker = runtimeWorker;
+// Forward ?debug=1 so the worker emits per-module/per-request trace logs.
+if (_bootParams.has('debug')) {
+  runtimeWorker.postMessage({ type: 'set-debug', enabled: true })
+}
 let workerReady = false
 
 function send(msg: unknown, transfer?: Transferable[]) {

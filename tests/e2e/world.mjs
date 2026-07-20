@@ -1,7 +1,9 @@
 import { setWorldConstructor, World } from '@cucumber/cucumber'
 import { chromium } from '/home/gabriel-menezes/.nvm/versions/node/v24.15.0/lib/node_modules/@playwright/cli/node_modules/playwright/index.mjs'
 
-const BASE = 'http://localhost:5173'
+// Override when the dev server runs on a non-default port (vite auto-increments
+// when 5173 is taken by another process).
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173'
 
 // Module-level browser instance shared across all scenarios in a run.
 let browser = null
@@ -34,11 +36,33 @@ class BrowserNodeWorld extends World {
     this.page = await this._ctx.newPage()
     this.page.on('pageerror', e => console.log('[pageerror]', e.message.slice(0, 120)))
     this.page.on('console', msg => console.log('[pageconsole]', msg.text()))
-    await this.page.goto(BASE, { waitUntil: 'load', timeout: 60000 })
+    // fresh=1 disables OPFS persistence so scenarios don't leak state via the
+    // per-origin filesystem or pay mirror overhead.
+    await this.page.goto(`${BASE}/?fresh=1`, { waitUntil: 'load', timeout: 60000 })
+    await this._waitReady()
+  }
+
+  async _waitReady() {
     await this.page.waitForFunction(
       () => { const t = document.getElementById('terminal'); return t && t.textContent.includes('Worker ready') },
       { timeout: 30000 }
     )
+  }
+
+  // Re-open the current context's page with OPFS persistence enabled (no fresh=1).
+  async enablePersistence() {
+    await this.page.goto(BASE, { waitUntil: 'load', timeout: 60000 })
+    await this._waitReady()
+  }
+
+  // Reload in the same context so OPFS (per-origin) survives. The page's
+  // terminal command counter resets on reload, so reset ours to match; wait for
+  // the mirror debounce (500ms) to flush pending writes to OPFS before reloading.
+  async reloadPage() {
+    await this.page.waitForTimeout(900)
+    await this.page.reload({ waitUntil: 'load', timeout: 60000 })
+    await this._waitReady()
+    this._cmdSeq = 0
   }
 
   async closePage() {

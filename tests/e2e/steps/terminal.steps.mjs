@@ -34,3 +34,11 @@ When('I accept the new file dialog with path {string}', async function (path) {
   await this.page.locator('#btn-new-file').click()
   await this.page.waitForTimeout(500)
 })
+
+Given('OPFS persistence is enabled', async function () {
+  await this.enablePersistence()
+})
+
+When('I reload the page', { timeout: 60000 }, async function () {
+  await this.reloadPage()
+})
