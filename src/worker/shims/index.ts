@@ -221,6 +221,19 @@ const _zlib = {
   gunzip: (_buf: Uint8Array, cb: (e: Error | null, r?: Uint8Array) => void) => cb(null, _buf),
   createGzip: () => ({ on: () => {}, pipe: (d: unknown) => d }),
   createGunzip: () => ({ on: () => {}, pipe: (d: unknown) => d }),
+  // Constructor classes matching Node's zlib exports. Libraries probe stream
+  // types with `stream instanceof zlib.Gzip` (e.g. the `destroy` module used by
+  // express.static); without these the RHS is undefined and instanceof throws.
+  // Our streams are never zlib streams, so empty classes correctly yield false.
+  Gzip: class Gzip {},
+  Gunzip: class Gunzip {},
+  Deflate: class Deflate {},
+  DeflateRaw: class DeflateRaw {},
+  Inflate: class Inflate {},
+  InflateRaw: class InflateRaw {},
+  Unzip: class Unzip {},
+  BrotliCompress: class BrotliCompress {},
+  BrotliDecompress: class BrotliDecompress {},
 }
 const _dns = {
   lookup: (_host: string, optsOrCb: unknown, cb?: (err: null, addr: string, family: number) => void) => {
