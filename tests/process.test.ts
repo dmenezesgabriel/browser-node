@@ -174,11 +174,32 @@ describe('procShim shim', () => {
   })
 
   describe('exit', () => {
-    it('throws an error with the exit code', () => {
+    it('throws ExitSignal carrying the code and sets exitCode', async () => {
+      const { ExitSignal } = await import('../src/worker/shims/process')
+      try {
+        procShim.exit(1)
+        expect.unreachable('exit must throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(ExitSignal)
+        expect((e as InstanceType<typeof ExitSignal>).code).toBe(1)
+        expect(procShim.exitCode).toBe(1)
+      }
+    })
+
+    it('keeps the process.exit(N) message format', () => {
       expect(() => procShim.exit(1)).toThrow('process.exit(1)')
     })
 
-    it('defaults to code 0', () => {
+    it('defaults to previously set exitCode, then 0', async () => {
+      const { ExitSignal } = await import('../src/worker/shims/process')
+      procShim.exitCode = 7
+      try {
+        procShim.exit()
+        expect.unreachable('exit must throw')
+      } catch (e) {
+        expect((e as InstanceType<typeof ExitSignal>).code).toBe(7)
+      }
+      procShim.exitCode = undefined
       expect(() => procShim.exit()).toThrow('process.exit(0)')
     })
   })

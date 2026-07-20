@@ -3,6 +3,21 @@ type Listener = (...args: unknown[]) => void
 let _currentCwd = '/app'
 export function setCwdForProcess(dir: string) { _currentCwd = dir }
 
+/**
+ * Thrown by process.exit() so command dispatchers (cmdNode, the `run` handler,
+ * process-worker children) can unwind and report an exit code instead of an
+ * error. Message keeps the historical `process.exit(N)` format for consumers
+ * that string-match it.
+ *
+ * Example: try { userCode() } catch (e) { if (e instanceof ExitSignal) return e.code }
+ */
+export class ExitSignal extends Error {
+  constructor(public code: number) {
+    super(`process.exit(${code})`)
+    this.name = 'ExitSignal'
+  }
+}
+
 const _listeners = new Map<string, Listener[]>()
 
 function _getListeners(event: string): Listener[] {
@@ -24,7 +39,7 @@ const processShim = {
   arch: 'x64',
   pid: 1,
   ppid: 0,
-  exitCode: 0,
+  exitCode: undefined as number | undefined,
   features: {},
   cwd: () => _currentCwd,
   chdir: (dir: string) => { _currentCwd = dir },
@@ -47,8 +62,10 @@ const processShim = {
     },
     { bigint: (): bigint => BigInt(Math.round(performance.now() * 1e6)) }
   ),
-  exit: (code = 0) => {
-    throw new Error(`process.exit(${code})`)
+  exit: (code?: number) => {
+    const finalCode = Number(code ?? processShim.exitCode ?? 0)
+    processShim.exitCode = finalCode
+    throw new ExitSignal(finalCode)
   },
   stdout: {
     write: (s: string) => { self.postMessage({ type: 'stdout', text: s }); return true },
