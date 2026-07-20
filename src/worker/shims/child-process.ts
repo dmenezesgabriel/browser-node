@@ -1,6 +1,7 @@
 import { EventEmitter } from './events'
 import { Readable, Writable, PassThrough } from './stream'
 import { vol } from '../vfs'
+import { applyJournalEntry } from '../fs-journal'
 import { runCommandSync } from '../terminal-cmd'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -169,6 +170,8 @@ export function exec(
     } else if (msg.type === 'stderr') {
       stderrBuf += msg.text
       cp.stderr.emit('data', Buffer.from(msg.text))
+    } else if (msg.type === 'fs-journal') {
+      applyJournalEntry(vol as unknown as Record<string, unknown>, msg.entry)
     } else if (msg.type === 'exit') {
       port1.close()
       cp.exitCode = msg.code
@@ -176,6 +179,7 @@ export function exec(
       cp.stderr.emit('end')
       cp.emit('exit', msg.code, null)
       cp.emit('close', msg.code, null)
+      cp._worker?.terminate()
       if (cb) {
         cb(msg.code !== 0 ? new Error(`Command failed: exit code ${msg.code}\n${stderrBuf || stdoutBuf}`) : null, stdoutBuf, stderrBuf)
       }
@@ -358,6 +362,8 @@ export function fork(modulePath: string, args?: string[] | ForkOptions, options?
       cp.stdout.emit('data', Buffer.from(msg.text))
     } else if (msg.type === 'stderr') {
       cp.stderr.emit('data', Buffer.from(msg.text))
+    } else if (msg.type === 'fs-journal') {
+      applyJournalEntry(vol as unknown as Record<string, unknown>, msg.entry)
     } else if (msg.type === 'exit') {
       port1.close()
       ipcPort1.close()
@@ -366,6 +372,7 @@ export function fork(modulePath: string, args?: string[] | ForkOptions, options?
       cp.stderr.emit('end')
       cp.emit('exit', msg.code, null)
       cp.emit('close', msg.code, null)
+      cp._worker?.terminate()
     }
   }
   port1.start()

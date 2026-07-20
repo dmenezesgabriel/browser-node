@@ -78,3 +78,42 @@ Feature: Terminal shell commands
     When I run terminal command "cd /app"
     And I run terminal command "npm run greet"
     Then the terminal should contain "npm-script-ran"
+
+  Scenario: process.exit terminates the command without an error
+    When I run the following code:
+      """
+      console.log('before exit')
+      process.exit(0)
+      """
+    Then the terminal should contain "before exit"
+    And the terminal should NOT contain "process.exit"
+
+  Scenario: child process writes propagate back to the parent VFS
+    When I run the following code:
+      """
+      const { fork } = require('child_process')
+      const fs = require('fs')
+      fs.writeFileSync('/app/child-writer.js', 'require("fs").writeFileSync("/app/from-child.txt", "hello-from-child")')
+      const cp = fork('/app/child-writer.js')
+      cp.on('exit', () => {
+        try {
+          console.log('parent-read: ' + fs.readFileSync('/app/from-child.txt', 'utf8'))
+        } catch (e) { console.log('parent-read-failed: ' + e.message) }
+      })
+      """
+    Then the terminal should contain "parent-read: hello-from-child"
+
+  Scenario: worker_threads runs a worker with workerData and message passing
+    When I run the following code:
+      """
+      const { Worker } = require('worker_threads')
+      const fs = require('fs')
+      fs.writeFileSync('/app/echo-worker.js', [
+        'const { parentPort, workerData } = require("worker_threads")',
+        'parentPort.postMessage("echo:" + workerData.msg)'
+      ].join('\n'))
+      const w = new Worker('/app/echo-worker.js', { workerData: { msg: 'ping' } })
+      w.on('message', (m) => console.log('worker-said: ' + m))
+      w.on('error', (e) => console.log('worker-error: ' + e.message))
+      """
+    Then the terminal should contain "worker-said: echo:ping"
