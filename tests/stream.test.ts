@@ -89,3 +89,63 @@ describe('Stream shims', () => {
     })
   })
 })
+
+// Pull-model regression: readdirp (used by chokidar, bundled inside vite)
+// subclasses Readable with _read()+push(); the shim must drive _read or
+// directory scans silently yield nothing and Vite HMR watching dies.
+describe('Readable pull model', () => {
+  class SyncPull extends (Readable as any) {
+    i = 0
+    _read() { if (this.i < 3) this.push(this.i++); else this.push(null) }
+  }
+
+  it('drives _read when a data listener attaches and ends after push(null)', async () => {
+    const r = new SyncPull()
+    const got: number[] = []
+    const ended = new Promise<void>(res => r.on('end', () => res()))
+    r.on('data', (d: number) => got.push(d))
+    await Promise.race([ended, new Promise(res => setTimeout(res, 300))])
+    expect(got).toEqual([0, 1, 2])
+    expect(r.readableEnded).toBe(true)
+  })
+
+  it('supports asynchronous _read', async () => {
+    class AsyncPull extends (Readable as any) {
+      i = 0
+      _read() { setTimeout(() => { if (this.i < 2) this.push('c' + this.i++); else this.push(null) }, 5) }
+    }
+    const r = new AsyncPull()
+    const got: string[] = []
+    const ended = new Promise<void>(res => r.on('end', () => res()))
+    r.on('data', (d: string) => got.push(d))
+    await Promise.race([ended, new Promise(res => setTimeout(res, 500))])
+    expect(got).toEqual(['c0', 'c1'])
+  })
+
+  it('buffers pushes made before a data listener attaches', async () => {
+    const r = new (Readable as any)()
+    r.push('early')
+    r.push(null)
+    const got: string[] = []
+    r.on('data', (d: string) => got.push(d))
+    await new Promise(res => setTimeout(res, 50))
+    expect(got).toEqual(['early'])
+    expect(r.readableEnded).toBe(true)
+  })
+
+  it('Readable.from delivers to listeners attached after creation', async () => {
+    const r = (Readable as any).from(['a', 'b'])
+    await new Promise(res => setTimeout(res, 10))
+    const got: string[] = []
+    r.on('data', (d: string) => got.push(d))
+    await new Promise(res => setTimeout(res, 50))
+    expect(got).toEqual(['a', 'b'])
+  })
+
+  it('supports for-await iteration', async () => {
+    const r = new SyncPull()
+    const got: number[] = []
+    for await (const chunk of r) got.push(chunk)
+    expect(got).toEqual([0, 1, 2])
+  })
+})
