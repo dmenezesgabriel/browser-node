@@ -37,9 +37,9 @@ if (!(fs as any).cpSync) {
   (fs as any).cpSync = cpSyncFallback;
 }
 
-// Patch watch/watchFile — memfs has no real FS events; return stub watchers.
-// Vite uses these for HMR file change detection. Without real watching, HMR
-// won't fire automatically, but the dev server will still serve transformed files.
+// memfs implements real fs.watch/watchFile with rename/change events
+// (recursive included) — Vite's HMR file watching works against it. Wrap them
+// like the other methods so URL path arguments are handled.
 const _fs = fs as unknown as Record<string, unknown>
 
 // Wrap core fs methods to handle URL objects as path arguments (Node.js 12+ feature)
@@ -51,24 +51,9 @@ const _wrapSync = (name: string) => {
 }
 for (const m of ['readFileSync','writeFileSync','statSync','lstatSync','existsSync','readdirSync',
                   'mkdirSync','rmdirSync','unlinkSync','accessSync','renameSync','createReadStream','createWriteStream',
-                  'openSync','chmodSync','copyFileSync','linkSync','symlinkSync','readlinkSync','realpathSync', 'cpSync']) {
+                  'openSync','chmodSync','copyFileSync','linkSync','symlinkSync','readlinkSync','realpathSync', 'cpSync',
+                  'watch','watchFile','unwatchFile']) {
   _wrapSync(m)
-}
-
-class FsWatcher {
-  private _listeners: Map<string, ((...args: unknown[]) => void)[]> = new Map()
-  close() { this._listeners.clear() }
-  on(event: string, fn: (...args: unknown[]) => void) {
-    const arr = this._listeners.get(event) ?? []
-    arr.push(fn)
-    this._listeners.set(event, arr)
-    return this
-  }
-  off(event: string, fn: (...args: unknown[]) => void) {
-    const arr = this._listeners.get(event)?.filter(l => l !== fn)
-    if (arr) this._listeners.set(event, arr)
-    return this
-  }
 }
 
 if (!_fs.constants) {
@@ -79,16 +64,6 @@ if (!_fs.constants) {
 // there are no real symlinks so native and JS variants behave identically.
 if (typeof _fs.realpathSync === 'function' && !(_fs.realpathSync as unknown as Record<string, unknown>).native) {
   (_fs.realpathSync as unknown as Record<string, unknown>).native = _fs.realpathSync
-}
-
-if (!_fs.watch) {
-  _fs.watch = (_path: string, _opts?: unknown, _listener?: unknown): FsWatcher => new FsWatcher()
-}
-if (!_fs.watchFile) {
-  _fs.watchFile = (_path: string, _opts?: unknown, _listener?: unknown): void => {}
-}
-if (!_fs.unwatchFile) {
-  _fs.unwatchFile = (_path: string, _listener?: unknown): void => {}
 }
 
 export const FS_CONSTANTS = {
@@ -125,6 +100,29 @@ export const fsPromises = {
   readlink:   (p: unknown) => Promise.resolve(toPath(p)),
   symlink:    (_target: unknown, _path: unknown) => Promise.resolve(),
   chmod:      (_p: unknown, _mode: number) => Promise.resolve(),
-  watch:      (_p: unknown, _opts?: unknown) => ({ close: () => {}, [Symbol.asyncIterator]: async function*() {} }),
+  // Async-iterator adapter over fs.watch, matching fsPromises.watch semantics:
+  // yields { eventType, filename } until the returned iterator's close() runs.
+  watch: (p: unknown, _opts?: unknown) => {
+    const queue: Array<{ eventType: string; filename: string | null }> = []
+    let notify: (() => void) | null = null
+    let closed = false
+    const watcher = (fs as unknown as {
+      watch: (p: string, l: (e: string, f: string | null) => void) => { close(): void }
+    }).watch(toPath(p), (eventType, filename) => {
+      queue.push({ eventType, filename })
+      notify?.()
+    })
+    const close = () => { closed = true; watcher.close(); notify?.() }
+    return {
+      close,
+      async *[Symbol.asyncIterator]() {
+        while (!closed) {
+          if (queue.length) { yield queue.shift()!; continue }
+          await new Promise<void>(r => { notify = r })
+          notify = null
+        }
+      },
+    }
+  },
 }
 

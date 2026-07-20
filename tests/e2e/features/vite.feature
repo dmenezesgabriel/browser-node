@@ -113,3 +113,30 @@ Feature: Vite dev server inside browser-node
       main().catch(e => console.error('Vite failed:', e.stack || e.message))
       """
     Then the terminal should contain "Both Vite servers running"
+
+  Scenario: Vite watcher invalidates the module graph on file change
+    When I install the following packages:
+      | package | version |
+      | vite    | latest  |
+    And I run the following code:
+      """
+      const fs = require('fs')
+      fs.mkdirSync('/vite-hmr/src', { recursive: true })
+      fs.writeFileSync('/vite-hmr/index.html',
+        '<html><body><script type="module" src="/src/app.js"></script></body></html>')
+      fs.writeFileSync('/vite-hmr/src/app.js', 'export const marker = "BEFORE_EDIT"')
+      const { createServer } = require('vite')
+      async function main() {
+        const server = await createServer({ root: '/vite-hmr', server: { port: 3009 } })
+        await server.listen()
+        const first = await server.transformRequest('/vite-hmr/src/app.js')
+        if (!first.code.includes('BEFORE_EDIT')) throw new Error('first transform missing marker')
+        fs.writeFileSync('/vite-hmr/src/app.js', 'export const marker = "AFTER_EDIT"')
+        await new Promise(r => setTimeout(r, 400))
+        const second = await server.transformRequest('/vite-hmr/src/app.js')
+        if (!second.code.includes('AFTER_EDIT')) throw new Error('watcher did not invalidate: ' + second.code.slice(0, 120))
+        console.log('Vite watcher invalidation works')
+      }
+      main().catch(e => console.error('Vite failed:', e.stack || e.message))
+      """
+    Then the terminal should contain "Vite watcher invalidation works"
