@@ -66,120 +66,24 @@ function unregisterServerWithSW(port: number) {
   navigator.serviceWorker.controller?.postMessage({ type: 'unregister-server', listenPort: port })
 }
 
-async function loadPreview(port: number, path: string) {
+function loadPreview(port: number, path: string) {
   const base = import.meta.env.BASE_URL
   const proxyPrefix = base.endsWith('/') ? `${base}_proxy/` : `${base}/_proxy/`
-  const proxyBase = `${location.origin}${proxyPrefix}${port}`
-  const proxyUrl = `${proxyBase}${path}`
-  try {
-    const resp = await fetch(proxyUrl)
-    if (!resp.ok) {
-      previewFrame.srcdoc = previewErrorHtml(port, `Server responded with ${resp.status}`)
-      setPreviewStatus('err', `Error ${resp.status}`)
-      return
-    }
-    let html = await resp.text()
-    if (!html.trim()) return
-
-    // Rewrite absolute-path URLs ("/foo") in HTML attributes so they go through the proxy.
-    // The <base href="..."> tag DOES NOT affect absolute-path URLs (those starting with /)
-    // because browsers always resolve them against the document origin, not the base.
-    // We must rewrite them before the browser parses the srcdoc HTML.
-    html = rewriteHtmlAbsolutePaths(html, proxyBase)
-
-    // Inject <base> (for relative paths) plus a runtime patch for dynamic fetch/XHR calls
-    const injection = `<base href="${proxyUrl}"><script>
-;(function(){
-  var _b='${proxyBase}';
-  function _p(u){return(typeof u==='string'&&u.startsWith('/')&&!u.startsWith('//'))?_b+u:u}
-  var _f=window.fetch;window.fetch=function(u,o){return _f.call(this,_p(u),o)};
-  var _x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){return _x.apply(this,[m,_p(u)].concat([].slice.call(arguments,2)))};
-  var _WS = window.WebSocket;
-  window.WebSocket = function(url, protocols) {
-    if (typeof url === 'string' && (url.includes('5173') || url.includes('5176') || url.includes('3000'))) {
-      var ws = new EventTarget();
-      ws.url = url;
-      ws.readyState = 1;
-      ws.send = function(data) { window.parent.postMessage({ type: 'ws-client-send', url: url, data: data }, '*') };
-      ws.close = function() {};
-      window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'ws-recv' && e.data.url === url) {
-           var ev = new MessageEvent('message', { data: e.data.data });
-           ws.dispatchEvent(ev);
-           if (ws.onmessage) ws.onmessage(ev);
-        }
-      });
-      setTimeout(function() {
-        window.parent.postMessage({ type: 'ws-client-open', url: url }, '*');
-        var ev = new Event('open');
-        ws.dispatchEvent(ev);
-        if (ws.onopen) ws.onopen(ev);
-      }, 50);
-      return ws;
-    }
-    return new _WS(url, protocols);
-  };
-})();
-<\/script>`.replace('<\/script>', '</script>')
-    if (html.includes('<head>')) html = html.replace('<head>', '<head>' + injection)
-    else html = injection + html
-    previewFrame.srcdoc = html
-    setPreviewStatus('ok', `Server :${port}`)
-  } catch {
-    previewFrame.srcdoc = previewErrorHtml(port, 'Could not reach the server')
-    setPreviewStatus('err', 'Unreachable')
+  const proxyUrl = `${location.origin}${proxyPrefix}${port}${path}`
+  // Real navigation: the iframe document loads from the proxy URL, and the
+  // Service Worker routes it plus every subresource/ESM module to the in-worker
+  // server (path-prefix routing + resultingClientId mapping). The app runs as it
+  // would on a real server — no HTML rewriting, no fetch/import patching. This is
+  // what makes a Vite dev server's client module graph work (its base is set to
+  // the same prefix, so every generated URL is intercepted).
+  previewFrame.removeAttribute('srcdoc')
+  if (previewFrame.src === proxyUrl) {
+    previewFrame.contentWindow?.location.reload()
+  } else {
+    previewFrame.src = proxyUrl
   }
+  setPreviewStatus('ok', `Server :${port}`)
 }
-
-/** Rewrite absolute-path URLs (starting with /) in HTML to go via proxyBase.
- *  Handles:
- *    - Attribute values: src="/..." href="/..." action="/..." srcset="/..."
- *    - CSS url(/...) in style blocks/attributes
- *    - ESM import specifiers inside <script type="module"> inline blocks:
- *        import X from '/...'   →  import X from 'http://.../_proxy/PORT/...'
- *        import('/...')         →  import('http://..._proxy/PORT/...')
- *  Skips protocol-relative "//" URLs.
- */
-function rewriteHtmlAbsolutePaths(html: string, proxyBase: string): string {
-  // 1. Rewrite quoted attribute values: src="/...", href="/...", etc.
-  html = html.replace(
-    /((?:src|href|action|srcset|data-src)\s*=\s*)(["'])(\/[^"']*)\2/gi,
-    (match, attr, quote, url) => {
-      if (url.startsWith('//')) return match  // protocol-relative, keep
-      return `${attr}${quote}${proxyBase}${url}${quote}`
-    }
-  )
-
-  // 2. Rewrite CSS url(/...) references in style attributes and inline <style> blocks
-  html = html.replace(
-    /url\(\s*(["']?)(\/[^"')]*)\1\s*\)/gi,
-    (match, quote, url) => {
-      if (url.startsWith('//')) return match
-      return `url(${quote}${proxyBase}${url}${quote})`
-    }
-  )
-
-  // 3. Rewrite ES module bare specifiers inside inline <script type="module"> blocks.
-  //    @vitejs/plugin-react injects: import RefreshRuntime from '/@react-refresh'
-  //    These are inside <script> text, NOT attributes, so attr rewriting can't reach them.
-  //    Pattern matches: from '/...'  |  from "/..."  |  import('/...')  |  import("/...")
-  html = html.replace(
-    /(<script\b[^>]*type\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script>)/gi,
-    (match, openTag, scriptBody, closeTag) => {
-      const rewritten = scriptBody
-        // import X from '/path'
-        .replace(/(from\s*)(["'])(\/[^"']*)\2/g, (m: string, kw: string, q: string, u: string) =>
-          u.startsWith('//') ? m : `${kw}${q}${proxyBase}${u}${q}`)
-        // dynamic import('/path')
-        .replace(/(import\s*\()(["'])(\/[^"']*)\2/g, (m: string, kw: string, q: string, u: string) =>
-          u.startsWith('//') ? m : `${kw}${q}${proxyBase}${u}${q}`)
-      return `${openTag}${rewritten}${closeTag}`
-    }
-  )
-
-  return html
-}
-
 
 // ── Hidden test-interface log buffer ─────────────────────────────────────────
 
@@ -601,22 +505,6 @@ function setStatusMsg(msg: string) {
 function setPreviewStatus(state: 'ok' | 'warn' | 'err' | '', text: string) {
   previewStatusEl.className = state
   previewStatusEl.textContent = state ? text : ''
-}
-
-function previewErrorHtml(port: number, detail: string): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-  body { background: #0d1117; color: #e6edf3; font-family: -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; text-align: center; }
-  .box { max-width: 480px; padding: 2rem; }
-  h2 { color: #f85149; font-size: 1.3rem; margin-bottom: 0.5rem; }
-  p { color: #8b949e; font-size: 0.95rem; line-height: 1.5; }
-  code { background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
-</style></head>
-<body><div class="box">
-  <h2>⚠ Preview Error</h2>
-  <p>${detail} on port <code>${port}</code>.</p>
-  <p>Start the server in the terminal, then click <strong>Refresh</strong>.</p>
-</div></body></html>`
 }
 
 runtimeWorker.addEventListener('message', (e: MessageEvent) => {
