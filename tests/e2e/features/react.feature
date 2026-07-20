@@ -63,6 +63,12 @@ Feature: React server-side rendering
       """
     Then the terminal should contain "React props+children: ok"
 
+  Scenario: react-todo example boots the Vite dev server unmodified
+    When I run terminal command "cd /examples/react-todo"
+    And I run terminal command "npm install" with timeout 300s
+    And I start a server with command "npm run dev" until I see "Vite dev server running"
+    Then the terminal should contain "Vite dev server running"
+
   Scenario: React missing module causes an error
     When I install the following packages:
       | package    | version |

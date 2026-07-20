@@ -87,3 +87,9 @@ Feature: Vue.js server-side rendering
       """
     Then the terminal should show a runtime error
     And the terminal should NOT contain "Vue server running"
+
+  Scenario: vue-todo example boots the Vite dev server unmodified
+    When I run terminal command "cd /examples/vue-todo"
+    And I run terminal command "npm install" with timeout 300s
+    And I start a server with command "npm run dev" until I see "Vite dev server running"
+    Then the terminal should contain "Vite dev server running"

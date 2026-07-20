@@ -241,33 +241,8 @@ const _dns = {
     resolve6: (_host: string) => Promise.resolve([]),
   },
 }
-const _workerThreads = {
-  isMainThread: true,
-  Worker: class {
-    on: () => this
-    off: () => this
-    once: () => this
-    postMessage: () => {}
-    terminate: () => {}
-    unref: () => this
-    ref: () => this
-    addEventListener: () => {}
-    removeEventListener: () => {}
-  },
-  MessageChannel: class {
-    port1: { postMessage: () => {}, on: () => {}, off: () => {}, close: () => {}, addEventListener: () => {}, removeEventListener: () => {}, start: () => {} }
-    port2: { postMessage: () => {}, on: () => {}, off: () => {}, close: () => {}, addEventListener: () => {}, removeEventListener: () => {}, start: () => {} }
-    constructor() {
-      this.port1 = { postMessage: () => {}, on: () => {}, off: () => {}, close: () => {}, addEventListener: () => {}, removeEventListener: () => {}, start: () => {} }
-      this.port2 = { postMessage: () => {}, on: () => {}, off: () => {}, close: () => {}, addEventListener: () => {}, removeEventListener: () => {}, start: () => {} }
-    }
-  },
-  receiveMessageOnPort: () => undefined,
-  parentPort: null,
-  workerData: null,
-  threadId: 0,
-  SHARE_ENV: Symbol('SHARE_ENV'),
-}
+// Real (feasible-subset) worker_threads — spawns process-worker.ts per Worker.
+import _workerThreads from './worker-threads'
 
 // v8 stub — only startupSnapshot.isBuildingSnapshot() is called in Vite
 const _v8 = {
@@ -790,7 +765,10 @@ _sirvFn.default = _sirvFn
 _sirvFn.sirv = _sirvFn
 const _sirvShim = _sirvFn
 
-export { _requireSync, _resolveModule, bindRequireSync } from './sync-registry'
+// Real import (not just re-export): `export … from` creates no local binding
+// per the ES spec, so in-module uses of these live `let` bindings need it.
+import { _requireSync, _resolveModule, _resolveModuleInVfs } from './sync-registry'
+export { _requireSync, _resolveModule, _resolveModuleInVfs, bindRequireSync } from './sync-registry'
 
 const _vmScript = class Script {
   private _code: string
@@ -897,6 +875,14 @@ const _moduleShim = {
     req.resolve = (spec: string) => {
       const resolved = _resolveModule(spec, fromDir)
       if (!resolved) throw new Error(`Cannot find module '${spec}'`)
+      if (resolved.startsWith('__shim__:')) {
+        // Shimmed npm package that is really installed: report the VFS path so
+        // callers deriving file locations from require.resolve() (vite@5 reads
+        // rollup's package.json this way) hit real files. Builtins fall through
+        // to the bare name, matching Node's require.resolve('fs') === 'fs'.
+        const realPath = _resolveModuleInVfs(spec, fromDir)
+        if (realPath) return realPath
+      }
       return resolved.replace(/^__shim__:/, '')
     }
     req.cache = {} as Record<string, unknown>
@@ -924,6 +910,10 @@ const _moduleShim = {
   // Next.js reads and patches Module._resolveFilename
   _resolveFilename: (request: string) => {
     const resolved = _resolveModule(request, '/app')
+    if (resolved?.startsWith('__shim__:')) {
+      const realPath = _resolveModuleInVfs(request, '/app')
+      if (realPath) return realPath
+    }
     return resolved ? resolved.replace(/^__shim__:/, '') : request
   },
 }
