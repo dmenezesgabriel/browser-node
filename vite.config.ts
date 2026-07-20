@@ -29,10 +29,12 @@ export default defineConfig({
   build: { target: 'esnext' },
   worker: { format: 'es' },
   server: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
+    // No COOP/COEP: the runtime deliberately avoids SharedArrayBuffer (see
+    // fs-journal.ts / worker-threads.ts), prod on GitHub Pages can't set these
+    // anyway, and cross-origin isolation put the SW-served preview iframe
+    // (COEP:unsafe-none) in a different agent cluster from the isolated parent —
+    // making it cross-origin and blank. Matching prod (no isolation) keeps the
+    // same-origin preview iframe accessible.
     proxy: {
       // Proxy npm registry through Node so browser TLS cert issues don't block installs
       '/_npm': {
